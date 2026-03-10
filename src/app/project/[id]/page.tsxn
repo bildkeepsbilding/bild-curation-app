@@ -207,18 +207,22 @@ export default function ProjectPage() {
             {/* Twitter metadata */}
             {viewing.metadata && viewing.platform === 'twitter' && (
               <div className="flex items-center gap-3 mb-4 text-xs" style={{ color: 'var(--text-tertiary)' }}>
-                {viewing.metadata.likes != null ? <span>Likes: {String(viewing.metadata.likes)}</span> : null}
-                {viewing.metadata.retweets != null ? <span>RTs: {String(viewing.metadata.retweets)}</span> : null}
-                {viewing.metadata.replies != null ? <span>Replies: {String(viewing.metadata.replies)}</span> : null}
+                {viewing.metadata.likes != null && <span>♥ {String(viewing.metadata.likes)}</span>}
+                {viewing.metadata.retweets != null && <span>↻ {String(viewing.metadata.retweets)}</span>}
+                {viewing.metadata.replies != null && <span>💬 {String(viewing.metadata.replies)}</span>}
               </div>
             )}
 
             {/* GitHub metadata */}
             {viewing.metadata && viewing.platform === 'github' && (
               <div className="flex items-center gap-3 mb-4 text-xs" style={{ color: 'var(--text-tertiary)' }}>
-                {viewing.metadata.stars != null ? <span>Stars: {String(viewing.metadata.stars)}</span> : null}
+                {viewing{viewing.metadata.stars != null ? <span>Stars: {String(viewing.metadata.stars)}</span> : null}
                 {viewing.metadata.forks != null ? <span>Forks: {String(viewing.metadata.forks)}</span> : null}
-                {viewing.metadata.language ? <span>{String(viewing.metadata.language)}</span> : null}
+                {viewing.metadata.language ? <span>{String(viewing.metadata.language)}</span> : null{viewing.metadata.likes != null && <span>♥ {String(viewing.metadata.likes)}</span>}
+{viewing.metadata.retweets != null && <span>↻ {String(viewing.metadata.retweets)}</span>}
+{viewing.metadata.replies != null && <span>💬 {String(viewing.metadata.replies)}</span>}metadata.stars != null && <span>⭐ {String(viewing.metadata.stars)}</span>}
+                {viewing.metadata.forks != null && <span>🍴 {String(viewing.metadata.forks)}</span>}
+                {viewing.metadata.language && <span>{String(viewing.metadata.language)}</span>}
               </div>
             )}
 
