@@ -1,0 +1,199 @@
+'use client';
+
+import { useState, useEffect, useRef } from 'react';
+import { useRouter } from 'next/navigation';
+import { getProjects, createProject, deleteProject, type Project } from '@/lib/db';
+
+export default function Home() {
+  const router = useRouter();
+  const [projects, setProjects] = useState<Project[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [showCreate, setShowCreate] = useState(false);
+  const [newName, setNewName] = useState('');
+  const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    loadProjects();
+  }, []);
+
+  useEffect(() => {
+    if (showCreate && inputRef.current) {
+      inputRef.current.focus();
+    }
+  }, [showCreate]);
+
+  async function loadProjects() {
+    try {
+      const p = await getProjects();
+      setProjects(p);
+    } catch (e) {
+      console.error('Failed to load projects:', e);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleCreate() {
+    const name = newName.trim();
+    if (!name) return;
+
+    try {
+      await createProject(name);
+      setNewName('');
+      setShowCreate(false);
+      await loadProjects();
+    } catch (e) {
+      console.error('Failed to create project:', e);
+    }
+  }
+
+  async function handleDelete(id: string) {
+    try {
+      await deleteProject(id);
+      setDeleteConfirm(null);
+      await loadProjects();
+    } catch (e) {
+      console.error('Failed to delete project:', e);
+    }
+  }
+
+  function formatDate(ts: number) {
+    const d = new Date(ts);
+    const now = new Date();
+    const diff = now.getTime() - d.getTime();
+    const mins = Math.floor(diff / 60000);
+    const hours = Math.floor(diff / 3600000);
+    const days = Math.floor(diff / 86400000);
+
+    if (mins < 1) return 'just now';
+    if (mins < 60) return `${mins}m ago`;
+    if (hours < 24) return `${hours}h ago`;
+    if (days < 7) return `${days}d ago`;
+    return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  }
+
+  function platformIcon(count: number) {
+    return `${count} capture${count !== 1 ? 's' : ''}`;
+  }
+
+  return (
+    <main className="min-h-dvh safe-top safe-bottom">
+      <header className="px-5 pt-6 pb-4 flex items-end justify-between">
+        <div>
+          <h1 className="text-2xl font-bold tracking-tight" style={{ color: 'var(--text-primary)' }}>
+            The Bild Curation App
+          </h1>
+          <p className="text-sm mt-0.5" style={{ color: 'var(--text-tertiary)' }}>
+            {projects.length} project{projects.length !== 1 ? 's' : ''}
+          </p>
+        </div>
+        <button
+          onClick={() => setShowCreate(true)}
+          className="flex items-center gap-1.5 px-4 py-2.5 rounded-full text-sm font-semibold transition-all active:scale-95"
+          style={{ background: 'var(--accent)', color: 'var(--bg)' }}
+        >
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+            <path d="M8 3v10M3 8h10" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+          </svg>
+          New
+        </button>
+      </header>
+
+      {showCreate && (
+        <div
+          className="fixed inset-0 z-50 flex items-end sm:items-center justify-center"
+          style={{ background: 'rgba(0,0,0,0.7)', backdropFilter: 'blur(4px)' }}
+          onClick={(e) => { if (e.target === e.currentTarget) { setShowCreate(false); setNewName(''); } }}
+        >
+          <div className="w-full sm:max-w-md p-6 rounded-t-2xl sm:rounded-2xl animate-fade-up" style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border)' }}>
+            <h2 className="text-lg font-semibold mb-4">New Project</h2>
+            <input
+              ref={inputRef}
+              type="text"
+              value={newName}
+              onChange={(e) => setNewName(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && handleCreate()}
+              placeholder="Project name..."
+              className="w-full px-4 py-3 rounded-xl text-base outline-none"
+              style={{ background: 'var(--bg)', border: '1px solid var(--border)', color: 'var(--text-primary)' }}
+              maxLength={50}
+            />
+            <div className="flex gap-3 mt-4">
+              <button onClick={() => { setShowCreate(false); setNewName(''); }} className="flex-1 py-3 rounded-xl text-sm font-medium active:scale-95" style={{ background: 'var(--bg)', color: 'var(--text-secondary)', border: '1px solid var(--border)' }}>Cancel</button>
+              <button onClick={handleCreate} disabled={!newName.trim()} className="flex-1 py-3 rounded-xl text-sm font-semibold active:scale-95 disabled:opacity-30" style={{ background: 'var(--accent)', color: 'var(--bg)' }}>Create</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {deleteConfirm && (
+        <div
+          className="fixed inset-0 z-50 flex items-end sm:items-center justify-center"
+          style={{ background: 'rgba(0,0,0,0.7)', backdropFilter: 'blur(4px)' }}
+          onClick={(e) => { if (e.target === e.currentTarget) setDeleteConfirm(null); }}
+        >
+          <div className="w-full sm:max-w-sm p-6 rounded-t-2xl sm:rounded-2xl animate-fade-up" style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border)' }}>
+            <h2 className="text-lg font-semibold mb-2">Delete Project</h2>
+            <p className="text-sm mb-5" style={{ color: 'var(--text-secondary)' }}>This will permanently delete the project and all its captures. This can&apos;t be undone.</p>
+            <div className="flex gap-3">
+              <button onClick={() => setDeleteConfirm(null)} className="flex-1 py-3 rounded-xl text-sm font-medium active:scale-95" style={{ background: 'var(--bg)', color: 'var(--text-secondary)', border: '1px solid var(--border)' }}>Cancel</button>
+              <button onClick={() => handleDelete(deleteConfirm)} className="flex-1 py-3 rounded-xl text-sm font-semibold active:scale-95" style={{ background: 'var(--danger)', color: '#fff' }}>Delete</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <div className="px-5 pb-8">
+        {loading ? (
+          <div className="flex items-center justify-center py-20">
+            <div className="w-5 h-5 rounded-full border-2 animate-spin" style={{ borderColor: 'var(--border)', borderTopColor: 'var(--accent)' }} />
+          </div>
+        ) : projects.length === 0 ? (
+          <div className="flex flex-col items-center justify-center py-20 text-center">
+            <div className="w-16 h-16 rounded-2xl flex items-center justify-center mb-4" style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border)' }}>
+              <svg width="28" height="28" viewBox="0 0 24 24" fill="none" style={{ color: 'var(--text-tertiary)' }}>
+                <rect x="3" y="3" width="18" height="18" rx="3" stroke="currentColor" strokeWidth="1.5" />
+                <path d="M3 9h18" stroke="currentColor" strokeWidth="1.5" />
+                <circle cx="6.5" cy="6" r="0.75" fill="currentColor" />
+                <circle cx="9.5" cy="6" r="0.75" fill="currentColor" />
+              </svg>
+            </div>
+            <p className="text-sm font-medium" style={{ color: 'var(--text-secondary)' }}>No projects yet</p>
+            <p className="text-xs mt-1" style={{ color: 'var(--text-tertiary)' }}>Create one to start capturing</p>
+          </div>
+        ) : (
+          <div className="space-y-2 stagger-children">
+            {projects.map((project) => (
+              <div
+                key={project.id}
+                className="group flex items-center rounded-2xl p-4 cursor-pointer"
+                style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border-subtle)' }}
+                onClick={() => router.push(`/project/${project.id}`)}
+              >
+                <div className="flex-1 min-w-0">
+                  <h3 className="text-base font-semibold truncate" style={{ color: 'var(--text-primary)' }}>{project.name}</h3>
+                  <div className="flex items-center gap-2 mt-1">
+                    <span className="text-xs font-mono" style={{ color: 'var(--text-tertiary)' }}>{platformIcon(project.captureCount || 0)}</span>
+                    <span style={{ color: 'var(--text-tertiary)' }}>·</span>
+                    <span className="text-xs" style={{ color: 'var(--text-tertiary)' }}>{formatDate(project.updatedAt)}</span>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={(e) => { e.stopPropagation(); setDeleteConfirm(project.id); }}
+                    className="p-2 rounded-lg opacity-0 group-hover:opacity-100"
+                    style={{ color: 'var(--text-tertiary)' }}
+                  >
+                    <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" /></svg>
+                  </button>
+                  <svg width="16" height="16" viewBox="0 0 16 16" fill="none" style={{ color: 'var(--text-tertiary)' }}><path d="M6 4l4 4-4 4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" /></svg>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </main>
+  );
+}
