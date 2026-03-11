@@ -235,18 +235,31 @@ export default function ProjectPage() {
               </div>
             )}
 
-            {/* Images */}
-            {viewing.images && viewing.images.length > 0 && (
-              <div className="mb-4 space-y-3">
-                {viewing.images.map((img, i) => (
-                  <img key={i} src={img} alt={`Image ${i + 1}`} className="w-full rounded-xl" style={{ border: '1px solid var(--border-subtle)' }} loading="lazy" />
-                ))}
+            {/* Body with inline images for articles, or images + text for other platforms */}
+            {viewing.body?.includes('[image:') ? (
+              <div className="text-sm leading-relaxed" style={{ color: 'var(--text-secondary)' }}>
+                {viewing.body.split(/(\[image:[^\]]+\])/).map((part, i) => {
+                  const imgMatch = part.match(/^\[image:(.+)\]$/);
+                  if (imgMatch) {
+                    return <img key={i} src={imgMatch[1]} alt={`Article image`} className="w-full rounded-xl my-4" style={{ border: '1px solid var(--border-subtle)' }} loading="lazy" />;
+                  }
+                  return part ? <span key={i} className="whitespace-pre-wrap">{part}</span> : null;
+                })}
               </div>
+            ) : (
+              <>
+                {viewing.images && viewing.images.length > 0 && (
+                  <div className="mb-4 space-y-3">
+                    {viewing.images.map((img, i) => (
+                      <img key={i} src={img} alt={`Image ${i + 1}`} className="w-full rounded-xl" style={{ border: '1px solid var(--border-subtle)' }} loading="lazy" />
+                    ))}
+                  </div>
+                )}
+                <div className="text-sm leading-relaxed whitespace-pre-wrap" style={{ color: 'var(--text-secondary)' }}>
+                  {viewing.body}
+                </div>
+              </>
             )}
-
-            <div className="text-sm leading-relaxed whitespace-pre-wrap" style={{ color: 'var(--text-secondary)' }}>
-              {viewing.body}
-            </div>
 
             <a href={viewing.url} target="_blank" rel="noopener noreferrer" className="inline-block mt-4 text-xs font-mono underline" style={{ color: 'var(--accent)' }}>
               View original →
