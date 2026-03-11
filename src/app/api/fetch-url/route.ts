@@ -413,60 +413,86 @@ async function fetchTwitter(url: string) {
     }
   }
 
-  // ── Strategy 4: Apify RAG Web Browser (search Google for article content — X blocks direct access) ──
+  // ── Strategy 4: Apify Twitter Scraper Unlimited (uses Twitter's internal APIs — can get article content) ──
   if (!bestBody || bestBody.length < 100) {
     const token = process.env.APIFY_TOKEN;
     if (token) {
       try {
-        // Search Google for the article instead of visiting X directly (X blocks bots)
-        const searchQuery = `site:x.com ${username} status ${statusId}`;
-        const ragUrl = `https://api.apify.com/v2/acts/apify~rag-web-browser/run-sync-get-dataset-items?token=${token}`;
-        const ragResponse = await fetch(ragUrl, {
+        const tweetUrl = `https://twitter.com/${username}/status/${statusId}`;
+        const scraperUrl = `https://api.apify.com/v2/acts/apidojo~twitter-scraper-lite/run-sync-get-dataset-items?token=${token}`;
+        const scraperResponse = await fetch(scraperUrl, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            query: searchQuery,
-            maxResults: 1,
-            scrapingTool: 'browser-playwright',
-            outputFormats: ['markdown'],
-            requestTimeoutSecs: 45,
+            startUrls: [{ url: tweetUrl }],
+            maxItems: 1,
           }),
         });
 
-        if (ragResponse.ok) {
-          const ragData = await ragResponse.json();
-          if (ragData && ragData.length > 0) {
-            // Find the result that has the most content
-            let bestMarkdown = '';
-            for (const page of ragData) {
-              const md = page.markdown || page.text || '';
-              if (md.length > bestMarkdown.length) {
-                bestMarkdown = md;
-              }
+        if (scraperResponse.ok) {
+          const scraperData = await scraperResponse.json();
+          console.log('Twitter Scraper Unlimited response:', JSON.stringify(scraperData?.[0] ? Object.keys(scraperData[0]) : 'empty', null, 2));
+          if (scraperData && scraperData.length > 0) {
+            const result = scraperData[0];
+            
+            // Check multiple fields where article content might live
+            let articleText = '';
+            
+            // Log all text-like fields for debugging
+            console.log('Scraper text fields:', {
+              text_len: result.text?.length || 0,
+              full_text_len: result.full_text?.length || 0,
+              note_tweet: !!result.note_tweet,
+              article: !!result.article,
+              richtext: !!result.richtext,
+              card: !!result.card,
+              has_data: !!result.data,
+            });
+            
+            // note_tweet contains long-form content
+            if (result.note_tweet?.text) {
+              articleText = result.note_tweet.text;
+            }
+            // Some scrapers return it in full_text
+            if (!articleText && result.full_text && result.full_text.length > 100) {
+              articleText = result.full_text;
+            }
+            // Or just text
+            if (!articleText && result.text && result.text.length > 100) {
+              articleText = result.text;
+            }
+            // Check for article-specific fields
+            if (!articleText && result.article?.text) {
+              articleText = result.article.text;
+            }
+            // richtext or content field
+            if (!articleText && result.richtext) {
+              articleText = typeof result.richtext === 'string' ? result.richtext : JSON.stringify(result.richtext);
+            }
+            // card content
+            if (!articleText && result.card?.legacy?.binding_values) {
+              const vals = result.card.legacy.binding_values;
+              const cardBody = vals.find?.((v: { key: string }) => v.key === 'body')?.value?.string_value;
+              if (cardBody) articleText = cardBody;
             }
 
-            if (bestMarkdown) {
-              // Clean up — remove nav junk, login prompts, cookie banners, X boilerplate
-              const cleaned = bestMarkdown
-                .replace(/Sign up[\s\S]*?timeline!?/g, '')
-                .replace(/Log in|Sign in|Cookie Policy|Terms of Service|Privacy Policy|Ads info|© \d{4} X Corp/gi, '')
-                .replace(/JavaScript is not available[\s\S]*?Help Center/g, '')
-                .replace(/Don't miss what's happening[\s\S]*?first to know/g, '')
-                .replace(/\[.*?\]\(https?:\/\/t\.co\/\w+\)/g, '') // Remove markdown t.co links
-                .replace(/https:\/\/t\.co\/\w+/g, '') // Remove plain t.co links
-                .replace(/\n{3,}/g, '\n\n')
-                .trim();
+            if (articleText && articleText.length > bestBody.length) {
+              bestBody = articleText;
+              source = 'scraper-unlimited';
+              isArticle = true;
+            }
 
-              if (cleaned && cleaned.length > bestBody.length && cleaned.length > 100) {
-                bestBody = cleaned;
-                source = 'rag-browser';
-                isArticle = true;
-              }
+            // Also grab images and metadata if better
+            if (result.media?.length) {
+              const newImages = result.media
+                .filter((m: { media_url_https?: string }) => m.media_url_https)
+                .map((m: { media_url_https: string }) => m.media_url_https);
+              if (newImages.length > images.length) images = newImages;
             }
           }
         }
       } catch (e) {
-        console.error('RAG Web Browser failed:', e);
+        console.error('Twitter Scraper Unlimited failed:', e);
       }
     }
   }
