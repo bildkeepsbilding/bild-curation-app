@@ -97,6 +97,67 @@ function parseRedditJsonResponse(data: unknown): RedditJsonResult {
   return { postData, commentsData };
 }
 
+// ── Reddit Search API Strategy (works on Vercel — search endpoint not IP-blocked) ──
+
+function extractRedditPostIdFromUrl(url: string): string | null {
+  const match = url.match(/\/comments\/([a-z0-9]+)/i);
+  return match ? match[1] : null;
+}
+
+async function fetchRedditViaSearch(url: string): Promise<RedditJsonResult> {
+  const postId = extractRedditPostIdFromUrl(url);
+  if (!postId) throw new Error('Could not extract Reddit post ID from URL');
+
+  // Reddit search API is not IP-blocked like the direct .json endpoint
+  const searchUrl = `https://www.reddit.com/search.json?q=url:${postId}&type=link&limit=1`;
+  const response = await fetch(searchUrl, {
+    headers: { 'User-Agent': 'BildCurationApp/1.0' },
+  });
+
+  if (!response.ok) throw new Error(`Reddit search API returned ${response.status}`);
+
+  const text = await response.text();
+  if (text.trimStart().startsWith('<!') || text.trimStart().startsWith('<html')) {
+    throw new Error('Reddit search API returned HTML instead of JSON');
+  }
+
+  const data = JSON.parse(text);
+  const children = data?.data?.children;
+  if (!children || children.length === 0) {
+    throw new Error('Reddit search API returned no results for this post');
+  }
+
+  const postData: RedditPost = children[0].data;
+  // Search API doesn't return comments — we'll try to get those separately
+  // but post data (title, body, images, score) is the priority
+  return { postData, commentsData: [] };
+}
+
+// Try to fetch just comments via the post .json endpoint (may fail on Vercel, that's OK)
+async function fetchRedditCommentsOnly(url: string): Promise<Array<{ kind: string; data: RedditComment & { replies?: { data?: { children?: Array<{ kind: string; data: RedditComment }> } } } }>> {
+  try {
+    let cleanUrl = url.split('?')[0];
+    if (cleanUrl.endsWith('/')) cleanUrl = cleanUrl.slice(0, -1);
+    if (!cleanUrl.endsWith('.json')) cleanUrl += '.json';
+
+    const response = await fetch(cleanUrl, {
+      headers: { 'User-Agent': 'BildCurationApp/1.0' },
+    });
+
+    if (!response.ok) return [];
+    const text = await response.text();
+    if (text.trimStart().startsWith('<')) return [];
+
+    const data = JSON.parse(text);
+    if (Array.isArray(data) && data.length > 1) {
+      return data[1].data.children || [];
+    }
+    return [];
+  } catch {
+    return []; // Comments are optional — silently fail
+  }
+}
+
 // ── Reddit RSS Strategy (no auth needed, works on Vercel) ──
 
 interface RedditRssResult {
@@ -286,15 +347,9 @@ async function getRedditAccessToken(): Promise<string> {
   return redditAccessToken!;
 }
 
-// Extract Reddit post ID from URL for API lookup
-function extractRedditPostId(url: string): string | null {
-  const match = url.match(/\/comments\/([a-z0-9]+)/i);
-  return match ? match[1] : null;
-}
-
 async function fetchRedditOAuth(url: string): Promise<RedditJsonResult> {
   const token = await getRedditAccessToken();
-  const postId = extractRedditPostId(url);
+  const postId = extractRedditPostIdFromUrl(url);
   if (!postId) throw new Error('Could not extract Reddit post ID from URL');
 
   // Use the Reddit OAuth API endpoint
@@ -416,79 +471,101 @@ async function fetchReddit(url: string) {
   let extractionMethod = '';
   const errors: string[] = [];
 
-  // ── Strategy 0: RSS feed (no auth, works on Vercel) ──
-  try {
-    const rssResult = await fetchRedditRss(url);
-    extractionMethod = 'rss';
-    console.log(`[Reddit] RSS strategy succeeded`);
-
-    const commentText = rssResult.comments.length > 0
-      ? '\n\n---\n\nTop Comments:\n\n' + rssResult.comments.join('\n\n')
-      : '';
-
-    return {
-      platform: 'reddit',
-      title: rssResult.title,
-      body: (rssResult.selftext || '(Link post)') + commentText,
-      author: `u/${rssResult.author}`,
-      images: rssResult.images,
-      metadata: {
-        subreddit: rssResult.subreddit,
-        score: 0, // RSS doesn't include scores
-        numComments: rssResult.comments.length,
-        flair: null,
-        permalink: url,
-        createdUtc: 0,
-        extractionMethod,
-      },
-    };
-  } catch (errRss) {
-    const msgRss = errRss instanceof Error ? errRss.message : 'unknown';
-    errors.push(`RSS: ${msgRss}`);
-    console.warn(`[Reddit] RSS strategy failed: ${msgRss}`);
-  }
-
   // ── Fallback strategies use JSON API (need full RedditPost for richer metadata) ──
   let postData!: RedditPost;
   let commentsData: Array<{ kind: string; data: RedditComment & { replies?: { data?: { children?: Array<{ kind: string; data: RedditComment }> } } } }> = [];
 
-  // Strategy 1: Reddit OAuth API (if credentials configured)
-  const hasOAuth = !!(process.env.REDDIT_CLIENT_ID && process.env.REDDIT_CLIENT_SECRET);
-  if (hasOAuth) {
+  // ── Strategy 0: Reddit Search API (works on Vercel — not IP-blocked) ──
+  try {
+    const result = await fetchRedditViaSearch(url);
+    postData = result.postData;
+    extractionMethod = 'search.reddit.com';
+    console.log(`[Reddit] Search API strategy succeeded`);
+
+    // Try to also fetch comments (may fail on Vercel, that's OK — post data is the priority)
+    commentsData = await fetchRedditCommentsOnly(url);
+    if (commentsData.length > 0) {
+      console.log(`[Reddit] Also fetched ${commentsData.length} comments`);
+    }
+  } catch (errSearch) {
+    const msgSearch = errSearch instanceof Error ? errSearch.message : 'unknown';
+    errors.push(`Search API: ${msgSearch}`);
+    console.warn(`[Reddit] Search API strategy failed: ${msgSearch}`);
+  }
+
+  // ── Strategy 1: RSS feed (no auth, works on Vercel as backup) ──
+  if (!extractionMethod) {
     try {
-      const result = await fetchRedditOAuth(url);
-      postData = result.postData;
-      commentsData = result.commentsData;
-      extractionMethod = 'oauth.reddit.com';
-      console.log(`[Reddit] OAuth strategy succeeded`);
-    } catch (err0) {
-      const msg0 = err0 instanceof Error ? err0.message : 'unknown';
-      errors.push(`OAuth: ${msg0}`);
-      console.warn(`[Reddit] OAuth strategy failed: ${msg0}`);
+      const rssResult = await fetchRedditRss(url);
+      extractionMethod = 'rss';
+      console.log(`[Reddit] RSS strategy succeeded`);
+
+      const commentText = rssResult.comments.length > 0
+        ? '\n\n---\n\nTop Comments:\n\n' + rssResult.comments.join('\n\n')
+        : '';
+
+      return {
+        platform: 'reddit',
+        title: rssResult.title,
+        body: (rssResult.selftext || '(Link post)') + commentText,
+        author: `u/${rssResult.author}`,
+        images: rssResult.images,
+        metadata: {
+          subreddit: rssResult.subreddit,
+          score: 0,
+          numComments: rssResult.comments.length,
+          flair: null,
+          permalink: url,
+          createdUtc: 0,
+          extractionMethod,
+        },
+      };
+    } catch (errRss) {
+      const msgRss = errRss instanceof Error ? errRss.message : 'unknown';
+      errors.push(`RSS: ${msgRss}`);
+      console.warn(`[Reddit] RSS strategy failed: ${msgRss}`);
     }
   }
 
-  // Strategy 2: www.reddit.com .json
+  // Strategy 2: Reddit OAuth API (if credentials configured)
+  if (!extractionMethod) {
+    const hasOAuth = !!(process.env.REDDIT_CLIENT_ID && process.env.REDDIT_CLIENT_SECRET);
+    if (hasOAuth) {
+      try {
+        const result = await fetchRedditOAuth(url);
+        postData = result.postData;
+        commentsData = result.commentsData;
+        extractionMethod = 'oauth.reddit.com';
+        console.log(`[Reddit] OAuth strategy succeeded`);
+      } catch (err0) {
+        const msg0 = err0 instanceof Error ? err0.message : 'unknown';
+        errors.push(`OAuth: ${msg0}`);
+        console.warn(`[Reddit] OAuth strategy failed: ${msg0}`);
+      }
+    }
+  }
+
+  // Strategy 3: www.reddit.com .json (works locally, blocked on Vercel)
   if (!extractionMethod) {
     try {
       const result = await fetchRedditJsonWww(url);
       postData = result.postData;
       commentsData = result.commentsData;
       extractionMethod = 'www.reddit.com/json';
-      console.log(`[Reddit] Strategy 2 succeeded: ${extractionMethod}`);
+      console.log(`[Reddit] www JSON strategy succeeded`);
     } catch (err1) {
       const msg1 = err1 instanceof Error ? err1.message : 'unknown';
-      errors.push(`Strategy 2 (www JSON): ${msg1}`);
-      console.warn(`[Reddit] Strategy 2 failed: ${msg1}`);
+      errors.push(`www JSON: ${msg1}`);
+      console.warn(`[Reddit] www JSON failed: ${msg1}`);
     }
   }
 
-  // Strategy 3: old.reddit.com HTML scraping
+  // Strategy 4: old.reddit.com HTML scraping
   if (!extractionMethod) {
     try {
       const htmlResult = await fetchRedditOldHtml(url);
       extractionMethod = 'old.reddit.com/html';
-      console.log(`[Reddit] Strategy 3 succeeded: ${extractionMethod}`);
+      console.log(`[Reddit] old HTML strategy succeeded`);
       postData = {
         title: htmlResult.title,
         selftext: htmlResult.selftext,
@@ -502,22 +579,22 @@ async function fetchReddit(url: string) {
       };
     } catch (err2) {
       const msg2 = err2 instanceof Error ? err2.message : 'unknown';
-      errors.push(`Strategy 3 (old HTML): ${msg2}`);
-      console.warn(`[Reddit] Strategy 3 failed: ${msg2}`);
+      errors.push(`old HTML: ${msg2}`);
+      console.warn(`[Reddit] old HTML failed: ${msg2}`);
     }
   }
 
-  // Strategy 4: old.reddit.com .json endpoint
+  // Strategy 5: old.reddit.com .json endpoint
   if (!extractionMethod) {
     try {
       const result = await fetchRedditJsonOld(url);
       postData = result.postData;
       commentsData = result.commentsData;
       extractionMethod = 'old.reddit.com/json';
-      console.log(`[Reddit] Strategy 4 succeeded: ${extractionMethod}`);
+      console.log(`[Reddit] old JSON strategy succeeded`);
     } catch (err3) {
       const msg3 = err3 instanceof Error ? err3.message : 'unknown';
-      errors.push(`Strategy 4 (old JSON): ${msg3}`);
+      errors.push(`old JSON: ${msg3}`);
       console.error(`[Reddit] All strategies failed:`, errors);
       throw new Error(`Reddit extraction failed: ${errors.join(' | ')}`);
     }
