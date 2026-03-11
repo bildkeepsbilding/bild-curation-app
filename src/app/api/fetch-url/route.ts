@@ -52,7 +52,11 @@ interface RedditComment {
 }
 
 function cleanImageUrl(url: string): string {
-  return url.replace(/&amp;/g, '&');
+  let clean = url.replace(/&amp;/g, '&');
+  // Convert preview.redd.it to i.redd.it for full resolution (no auth signature needed)
+  const previewMatch = clean.match(/preview\.redd\.it\/([^?&\s]+)/);
+  if (previewMatch) clean = `https://i.redd.it/${previewMatch[1]}`;
+  return clean;
 }
 
 function isImageUrl(url: string): boolean {
@@ -321,25 +325,49 @@ function stripHtml(html: string): string {
     .trim();
 }
 
+// Convert preview.redd.it URL to i.redd.it (full resolution, no auth needed)
+function toFullResRedditImage(url: string): string {
+  // preview.redd.it/FILENAME?width=320&... → i.redd.it/FILENAME
+  const match = url.match(/preview\.redd\.it\/([^?&\s]+)/);
+  if (match) return `https://i.redd.it/${match[1]}`;
+  return url;
+}
+
 function extractImagesFromRss(contentHtml: string, fullXml: string): string[] {
+  const seen = new Set<string>();
   const images: string[] = [];
 
-  // Extract from <img> tags in content HTML
-  const imgRegex = /<img[^>]+src=["']([^"']+)["']/gi;
+  function addImg(url: string) {
+    // Convert preview.redd.it to i.redd.it for full resolution
+    const full = toFullResRedditImage(url);
+    // Normalize for dedup: strip query params for comparison
+    const key = full.split('?')[0];
+    if (!seen.has(key)) {
+      seen.add(key);
+      images.push(full);
+    }
+  }
+
+  // 1. Extract i.redd.it direct links from <a href> tags (full resolution)
+  const hrefRegex = /href=["'](https?:\/\/i\.redd\.it\/[^"']+)["']/gi;
   let match;
+  while ((match = hrefRegex.exec(contentHtml)) !== null) {
+    addImg(match[1].replace(/&amp;/g, '&'));
+  }
+
+  // 2. Extract from <img> tags in content HTML
+  const imgRegex = /<img[^>]+src=["']([^"']+)["']/gi;
   while ((match = imgRegex.exec(contentHtml)) !== null) {
     const src = match[1].replace(/&amp;/g, '&');
     if (src.includes('icon.png') || src.includes('redditstatic.com')) continue;
-    // Keep full URL with query params — Reddit requires the ?s= signature to serve images
-    if (!images.includes(src)) images.push(src);
+    addImg(src);
   }
 
-  // Also check media:thumbnail tags in the XML
+  // 3. Check media:thumbnail tags in the XML
   const thumbRegex = /media:thumbnail\s+url=["']([^"']+)["']/gi;
   while ((match = thumbRegex.exec(fullXml)) !== null) {
     const src = match[1].replace(/&amp;/g, '&');
-    // Keep full URL with query params — Reddit requires the ?s= signature
-    if (src && !images.includes(src)) images.push(src);
+    if (src) addImg(src);
   }
 
   return images;
