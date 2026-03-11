@@ -149,10 +149,33 @@ async function fetchViaFxTwitter(username: string, statusId: string): Promise<{
       }
     }
 
-    const text = tweet.text || '';
-    // Detect if this is an article: FxTwitter returns very short/empty text for articles
-    // and the original URL typically contains /article/ or the tweet card type hints at it
-    const isArticle = (!text || text.length < 50) && (tweet.twitter_card === 'article' || tweet.twitter_card === 'summary_large_image');
+    let text = tweet.text || '';
+    let isArticle = false;
+
+    // Extract full article content from FxTwitter's article.content.blocks
+    if (tweet.article?.content?.blocks) {
+      const blocks = tweet.article.content.blocks as Array<{ text?: string; type?: string }>;
+      const articleText = blocks
+        .map((b) => b.text || '')
+        .filter((t) => t.length > 0)
+        .join('\n\n');
+      if (articleText.length > text.length) {
+        const title = tweet.article.title || '';
+        text = title ? `${title}\n\n${articleText}` : articleText;
+        isArticle = true;
+      }
+    }
+
+    // Detect article even if content.blocks is missing
+    if (!isArticle && (!text || text.length < 50)) {
+      isArticle = tweet.twitter_card === 'article' || tweet.twitter_card === 'summary_large_image' || !!tweet.article;
+    }
+
+    // Extract article cover image if available
+    if (tweet.article?.cover_media?.media_info?.original_img_url) {
+      const coverUrl = tweet.article.cover_media.media_info.original_img_url;
+      if (!images.includes(coverUrl)) images.unshift(coverUrl);
+    }
 
     return {
       text,
@@ -416,86 +439,7 @@ async function fetchTwitter(url: string) {
     }
   }
 
-  // ── Strategy 4: Google Cache (free, static HTML, no login wall) ──
-  if (!bestBody || bestBody.length < 100) {
-    try {
-      const cacheUrl = `https://webcache.googleusercontent.com/search?q=cache:https://x.com/${username}/status/${statusId}`;
-      const cacheResponse = await fetch(cacheUrl, {
-        headers: {
-          'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-          'Accept': 'text/html',
-        },
-      });
-
-      if (cacheResponse.ok) {
-        const html = await cacheResponse.text();
-        console.log('Google Cache response length:', html.length);
-
-        // Extract article content from the cached HTML
-        // X articles have their content in specific div structures
-        // Strip HTML tags but preserve paragraph breaks
-        let articleContent = '';
-
-        // Try to find article body content between common markers
-        const articleMatch = html.match(/data-testid="tweetText"[^>]*>([\s\S]*?)<\/div>/gi);
-        if (articleMatch) {
-          articleContent = articleMatch
-            .map((m: string) => m.replace(/<[^>]*>/g, '').trim())
-            .filter((t: string) => t.length > 0)
-            .join('\n\n');
-        }
-
-        // Fallback: extract all meaningful text between <p> and <span> tags
-        if (!articleContent || articleContent.length < 100) {
-          const textBlocks = html.match(/<(?:p|span|div)[^>]*class="[^"]*css-[^"]*"[^>]*>([\s\S]*?)<\/(?:p|span|div)>/gi);
-          if (textBlocks) {
-            const cleaned = textBlocks
-              .map((b: string) => b.replace(/<[^>]*>/g, '').trim())
-              .filter((t: string) => t.length > 30) // Only meaningful paragraphs
-              .join('\n\n');
-            if (cleaned.length > articleContent.length) {
-              articleContent = cleaned;
-            }
-          }
-        }
-
-        // Last fallback: just strip all HTML and look for long text blocks
-        if (!articleContent || articleContent.length < 100) {
-          const stripped = html
-            .replace(/<script[\s\S]*?<\/script>/gi, '')
-            .replace(/<style[\s\S]*?<\/style>/gi, '')
-            .replace(/<[^>]*>/g, '\n')
-            .replace(/&nbsp;/g, ' ')
-            .replace(/&amp;/g, '&')
-            .replace(/&lt;/g, '<')
-            .replace(/&gt;/g, '>')
-            .replace(/&quot;/g, '"')
-            .replace(/&#39;/g, "'")
-            .replace(/\n{3,}/g, '\n\n')
-            .trim();
-
-          // Find the longest continuous block of text (likely the article)
-          const blocks = stripped.split(/\n\n+/);
-          const longBlocks = blocks.filter((b: string) => b.trim().length > 50);
-          if (longBlocks.length > 3) {
-            articleContent = longBlocks.join('\n\n');
-          }
-        }
-
-        if (articleContent && articleContent.length > bestBody.length && articleContent.length > 200) {
-          bestBody = articleContent;
-          source = 'google-cache';
-          isArticle = true;
-        }
-      } else {
-        console.log('Google Cache returned:', cacheResponse.status);
-      }
-    } catch (e) {
-      console.error('Google Cache failed:', e);
-    }
-  }
-
-  // ── Strategy 5: oEmbed (last resort) ──
+  // ── Strategy 4: oEmbed (last resort) ──
   if (!bestBody) {
     const oembedResult = await fetchViaOEmbed(url);
     if (oembedResult) {
