@@ -413,40 +413,55 @@ async function fetchTwitter(url: string) {
     }
   }
 
-  // ── Strategy 4: Apify RAG Web Browser (for articles — renders JS, extracts content) ──
+  // ── Strategy 4: Apify RAG Web Browser (search Google for article content — X blocks direct access) ──
   if (!bestBody || bestBody.length < 100) {
     const token = process.env.APIFY_TOKEN;
     if (token) {
       try {
+        // Search Google for the article instead of visiting X directly (X blocks bots)
+        const searchQuery = `site:x.com ${username} status ${statusId}`;
         const ragUrl = `https://api.apify.com/v2/acts/apify~rag-web-browser/run-sync-get-dataset-items?token=${token}`;
         const ragResponse = await fetch(ragUrl, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            query: url,
+            query: searchQuery,
             maxResults: 1,
             scrapingTool: 'browser-playwright',
             outputFormats: ['markdown'],
-            requestTimeoutSecs: 30,
+            requestTimeoutSecs: 45,
           }),
         });
 
         if (ragResponse.ok) {
           const ragData = await ragResponse.json();
           if (ragData && ragData.length > 0) {
-            const page = ragData[0];
-            const markdown = page.markdown || page.text || '';
+            // Find the result that has the most content
+            let bestMarkdown = '';
+            for (const page of ragData) {
+              const md = page.markdown || page.text || '';
+              if (md.length > bestMarkdown.length) {
+                bestMarkdown = md;
+              }
+            }
 
-            // Clean up the markdown — remove nav junk, login prompts, cookie banners
-            const cleaned = markdown
-              .replace(/Sign up|Log in|Sign in|Cookie|Accept all/gi, '')
-              .replace(/\n{3,}/g, '\n\n')
-              .trim();
+            if (bestMarkdown) {
+              // Clean up — remove nav junk, login prompts, cookie banners, X boilerplate
+              const cleaned = bestMarkdown
+                .replace(/Sign up[\s\S]*?timeline!?/g, '')
+                .replace(/Log in|Sign in|Cookie Policy|Terms of Service|Privacy Policy|Ads info|© \d{4} X Corp/gi, '')
+                .replace(/JavaScript is not available[\s\S]*?Help Center/g, '')
+                .replace(/Don't miss what's happening[\s\S]*?first to know/g, '')
+                .replace(/\[.*?\]\(https?:\/\/t\.co\/\w+\)/g, '') // Remove markdown t.co links
+                .replace(/https:\/\/t\.co\/\w+/g, '') // Remove plain t.co links
+                .replace(/\n{3,}/g, '\n\n')
+                .trim();
 
-            if (cleaned && cleaned.length > bestBody.length) {
-              bestBody = cleaned;
-              source = 'rag-browser';
-              isArticle = true;
+              if (cleaned && cleaned.length > bestBody.length && cleaned.length > 100) {
+                bestBody = cleaned;
+                source = 'rag-browser';
+                isArticle = true;
+              }
             }
           }
         }
