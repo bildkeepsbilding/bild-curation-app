@@ -222,39 +222,56 @@ export async function updateCapture(id: string, updates: Partial<Capture>): Prom
   });
 }
 
-// Export all captures in a project as markdown
-export async function exportProjectAsMarkdown(projectId: string): Promise<string> {
+// Export captures as structured markdown for Claude
+export async function exportProjectAsMarkdown(projectId: string, filterPlatform?: Platform | 'all'): Promise<string> {
   const project = await getProject(projectId);
-  const captures = await getCaptures(projectId);
+  let captures = await getCaptures(projectId);
   if (!project) return '';
 
-  let md = `# ${project.name}\n\nExported: ${new Date().toLocaleDateString()}\nCaptures: ${captures.length}\n\n---\n\n`;
+  if (filterPlatform && filterPlatform !== 'all') {
+    captures = captures.filter(c => c.platform === filterPlatform);
+  }
+
+  const filterLabel = filterPlatform && filterPlatform !== 'all' ? ` (${filterPlatform})` : '';
+  let md = `# ${project.name}${filterLabel}\n\nExported: ${new Date().toISOString().split('T')[0]}\nCaptures: ${captures.length}\n\n`;
 
   for (const c of captures) {
-    md += `## ${c.title}\n\n`;
-    md += `**Source:** ${c.platform} · ${c.author}\n`;
-    md += `**URL:** ${c.url}\n`;
-    md += `**Captured:** ${new Date(c.createdAt).toLocaleDateString()}\n\n`;
+    // YAML-style header block for structured parsing
+    md += `---\n`;
+    md += `source: ${c.platform}\n`;
+    md += `author: ${c.author}\n`;
+    md += `date: ${new Date(c.createdAt).toISOString().split('T')[0]}\n`;
+    md += `url: ${c.url}\n`;
+    if (c.note) md += `notes: ${c.note}\n`;
+    md += `---\n\n`;
 
-    if (c.images && c.images.length > 0) {
-      md += `**Images:**\n`;
-      for (const img of c.images) {
-        md += `![](${img})\n`;
-      }
-      md += `\n`;
-    }
+    md += `## ${c.title}\n\n`;
 
     if (c.metadata && c.platform === 'reddit') {
       md += `r/${c.metadata.subreddit} · ↑${c.metadata.score} · ${c.metadata.numComments} comments\n\n`;
     }
 
-    md += `${c.body}\n\n`;
-
-    if (c.note) {
-      md += `> **My notes:** ${c.note}\n\n`;
+    if (c.metadata && c.platform === 'twitter') {
+      const m = c.metadata;
+      const stats = [
+        m.likes ? `♥${m.likes}` : null,
+        m.retweets ? `⟲${m.retweets}` : null,
+        m.views ? `👁${m.views}` : null,
+      ].filter(Boolean).join(' · ');
+      if (stats) md += `${stats}\n\n`;
     }
 
-    md += `---\n\n`;
+    // Strip [image:URL] markers from body for clean text export
+    const cleanBody = c.body.replace(/\[image:[^\]]+\]\n?\n?/g, '');
+    md += `${cleanBody}\n\n`;
+
+    if (c.images && c.images.length > 0) {
+      md += `Images:\n`;
+      for (const img of c.images) {
+        md += `- ${img}\n`;
+      }
+      md += `\n`;
+    }
   }
 
   return md;
