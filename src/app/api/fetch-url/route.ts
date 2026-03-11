@@ -1533,6 +1533,62 @@ async function fetchArticle(url: string) {
 
 // ── Route handler ──
 
+// GET handler for testing — visit /api/fetch-url?url=REDDIT_URL to debug
+export async function GET(request: NextRequest) {
+  const url = request.nextUrl.searchParams.get('url');
+  if (!url) {
+    return NextResponse.json({ error: 'Pass ?url=REDDIT_URL to test', usage: '/api/fetch-url?url=https://reddit.com/r/sub/comments/ID/title' });
+  }
+  try {
+    const postId = extractRedditPostIdFromUrl(url);
+    if (!postId) {
+      return NextResponse.json({ error: 'Could not extract Reddit post ID' });
+    }
+
+    // Directly call the Reddit API and show raw results
+    const searchUrl = `https://www.reddit.com/api/info.json?id=t3_${postId}&raw_json=1`;
+    const response = await fetch(searchUrl, {
+      headers: { 'User-Agent': 'BildCurationApp/1.0' },
+    });
+
+    const text = await response.text();
+    if (text.trimStart().startsWith('<')) {
+      return NextResponse.json({ error: 'Reddit returned HTML (blocked)', status: response.status, bodyPreview: text.slice(0, 200) });
+    }
+
+    const data = JSON.parse(text);
+    const children = data?.data?.children;
+    if (!children?.length) {
+      return NextResponse.json({ error: 'No results from Reddit API', raw: data });
+    }
+
+    const postData: RedditPost = children[0].data;
+    const images = extractRedditImages(postData);
+
+    return NextResponse.json({
+      test: 'Reddit API debug',
+      postId,
+      title: postData.title,
+      extractedImages: images,
+      rawFields: {
+        url: postData.url,
+        url_overridden_by_dest: postData.url_overridden_by_dest,
+        post_hint: postData.post_hint,
+        thumbnail: postData.thumbnail,
+        is_gallery: postData.is_gallery,
+        is_video: postData.is_video,
+        has_preview: !!postData.preview,
+        preview_images_count: postData.preview?.images?.length || 0,
+        preview_source_url: postData.preview?.images?.[0]?.source?.url || null,
+        media_metadata_keys: postData.media_metadata ? Object.keys(postData.media_metadata) : [],
+        crosspost_parents: postData.crosspost_parent_list?.length || 0,
+      },
+    });
+  } catch (error) {
+    return NextResponse.json({ error: error instanceof Error ? error.message : 'Unknown error' }, { status: 500 });
+  }
+}
+
 export async function POST(request: NextRequest) {
   try {
     const { url } = await request.json();
