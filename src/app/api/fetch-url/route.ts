@@ -395,7 +395,7 @@ async function fetchTwitter(url: string) {
     }
   }
 
-  // ── Strategy 3: Apify (costs credits — only if we still have no body) ──
+  // ── Strategy 3: Apify tweet scraper (costs credits — only if we still have no body) ──
   if (!bestBody || (isArticle && bestBody.length < 100)) {
     const apifyResult = await fetchViaApify(url);
     if (apifyResult) {
@@ -413,7 +413,50 @@ async function fetchTwitter(url: string) {
     }
   }
 
-  // ── Strategy 4: oEmbed (last resort) ──
+  // ── Strategy 4: Apify RAG Web Browser (for articles — renders JS, extracts content) ──
+  if (!bestBody || bestBody.length < 100) {
+    const token = process.env.APIFY_TOKEN;
+    if (token) {
+      try {
+        const ragUrl = `https://api.apify.com/v2/acts/apify~rag-web-browser/run-sync-get-dataset-items?token=${token}`;
+        const ragResponse = await fetch(ragUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            query: url,
+            maxResults: 1,
+            scrapingTool: 'browser-playwright',
+            outputFormats: ['markdown'],
+            requestTimeoutSecs: 30,
+          }),
+        });
+
+        if (ragResponse.ok) {
+          const ragData = await ragResponse.json();
+          if (ragData && ragData.length > 0) {
+            const page = ragData[0];
+            const markdown = page.markdown || page.text || '';
+
+            // Clean up the markdown — remove nav junk, login prompts, cookie banners
+            const cleaned = markdown
+              .replace(/Sign up|Log in|Sign in|Cookie|Accept all/gi, '')
+              .replace(/\n{3,}/g, '\n\n')
+              .trim();
+
+            if (cleaned && cleaned.length > bestBody.length) {
+              bestBody = cleaned;
+              source = 'rag-browser';
+              isArticle = true;
+            }
+          }
+        }
+      } catch (e) {
+        console.error('RAG Web Browser failed:', e);
+      }
+    }
+  }
+
+  // ── Strategy 5: oEmbed (last resort) ──
   if (!bestBody) {
     const oembedResult = await fetchViaOEmbed(url);
     if (oembedResult) {
