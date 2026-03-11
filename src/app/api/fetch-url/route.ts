@@ -749,6 +749,14 @@ async function fetchReddit(url: string) {
   const commentText = comments.length > 0 ? '\n\n---\n\nTop Comments:\n\n' + comments.slice(0, 20).join('\n\n') : '';
   const images = extractRedditImages(postData);
 
+  // Debug: log raw image-related fields so we can diagnose extraction issues
+  console.log(`[Reddit] Final result: ${images.length} images, title="${postData.title?.slice(0, 60)}"`);
+  if (images.length > 0) {
+    console.log(`[Reddit] Image URLs: ${images.slice(0, 3).join(', ')}`);
+  } else {
+    console.log(`[Reddit] No images found. Raw fields: thumbnail=${postData.thumbnail}, url=${postData.url?.slice(0, 100)}, post_hint=${postData.post_hint}, is_self=${!postData.url_overridden_by_dest}`);
+  }
+
   return {
     platform: 'reddit',
     title: postData.title,

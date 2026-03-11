@@ -217,6 +217,7 @@ export default function Home() {
                       alt=""
                       className="w-full h-full object-cover"
                       referrerPolicy="no-referrer"
+                      onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
                     />
                   ) : (
                     <div className="w-full h-full flex items-center justify-center" style={{
