@@ -108,29 +108,50 @@ async function fetchRedditViaSearch(url: string): Promise<RedditJsonResult> {
   const postId = extractRedditPostIdFromUrl(url);
   if (!postId) throw new Error('Could not extract Reddit post ID from URL');
 
-  // Reddit search API is not IP-blocked like the direct .json endpoint
-  const searchUrl = `https://www.reddit.com/search.json?q=url:${postId}&type=link&limit=1`;
-  const response = await fetch(searchUrl, {
-    headers: { 'User-Agent': 'BildCurationApp/1.0' },
-  });
+  // Try multiple Reddit API endpoints that may not be IP-blocked
+  const endpoints = [
+    // api/info is a direct ID lookup — most reliable
+    `https://www.reddit.com/api/info.json?id=t3_${postId}&raw_json=1`,
+    // by_id is another direct lookup
+    `https://www.reddit.com/by_id/t3_${postId}.json?raw_json=1`,
+    // search is a broader endpoint
+    `https://www.reddit.com/search.json?q=url:${postId}&type=link&limit=1&raw_json=1`,
+  ];
 
-  if (!response.ok) throw new Error(`Reddit search API returned ${response.status}`);
+  for (const searchUrl of endpoints) {
+    try {
+      const response = await fetch(searchUrl, {
+        headers: { 'User-Agent': 'BildCurationApp/1.0' },
+      });
 
-  const text = await response.text();
-  if (text.trimStart().startsWith('<!') || text.trimStart().startsWith('<html')) {
-    throw new Error('Reddit search API returned HTML instead of JSON');
+      if (!response.ok) {
+        console.warn(`[Reddit] Endpoint ${searchUrl.split('?')[0]} returned ${response.status}`);
+        continue;
+      }
+
+      const text = await response.text();
+      if (text.trimStart().startsWith('<!') || text.trimStart().startsWith('<html')) {
+        console.warn(`[Reddit] Endpoint ${searchUrl.split('?')[0]} returned HTML`);
+        continue;
+      }
+
+      const data = JSON.parse(text);
+      const children = data?.data?.children;
+      if (!children || children.length === 0) {
+        console.warn(`[Reddit] Endpoint ${searchUrl.split('?')[0]} returned empty results`);
+        continue;
+      }
+
+      const postData: RedditPost = children[0].data;
+      console.log(`[Reddit] Got post via ${searchUrl.split('?')[0]}`);
+      return { postData, commentsData: [] };
+    } catch (err) {
+      console.warn(`[Reddit] Endpoint ${searchUrl.split('?')[0]} error:`, err instanceof Error ? err.message : err);
+      continue;
+    }
   }
 
-  const data = JSON.parse(text);
-  const children = data?.data?.children;
-  if (!children || children.length === 0) {
-    throw new Error('Reddit search API returned no results for this post');
-  }
-
-  const postData: RedditPost = children[0].data;
-  // Search API doesn't return comments — we'll try to get those separately
-  // but post data (title, body, images, score) is the priority
-  return { postData, commentsData: [] };
+  throw new Error('All Reddit API endpoints failed');
 }
 
 // Try to fetch just comments via the post .json endpoint (may fail on Vercel, that's OK)
