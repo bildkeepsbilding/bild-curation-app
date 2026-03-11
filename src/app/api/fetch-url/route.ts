@@ -186,7 +186,7 @@ async function fetchReddit(url: string) {
 
   // Handle crosspost: if selftext is empty, check crosspost_parent_list
   let selftext = postData.selftext || '';
-  const crosspostList = (postData as Record<string, unknown>).crosspost_parent_list as Array<{ selftext?: string; title?: string; author?: string; subreddit?: string }> | undefined;
+  const crosspostList = (postData as unknown as Record<string, unknown>).crosspost_parent_list as Array<{ selftext?: string; title?: string; author?: string; subreddit?: string }> | undefined;
   if (!selftext && crosspostList && crosspostList.length > 0) {
     const parent = crosspostList[0];
     if (parent.selftext) {
@@ -265,20 +265,52 @@ async function fetchViaFxTwitter(username: string, statusId: string): Promise<{
 
     // Extract full article content from FxTwitter's article.content.blocks
     // Interleaves text and inline images using [image:URL] markers
+    // Uses entityMap to correctly map atomic blocks → mediaId → media_entity URL
     if (tweet.article?.content?.blocks) {
-      const blocks = tweet.article.content.blocks as Array<{ text?: string; type?: string; entityRanges?: Array<{ key: number }> }>;
-      const mediaEntities = (tweet.article.media_entities || []) as Array<{ media_info?: { original_img_url?: string } }>;
-      let mediaIndex = 0;
+      const blocks = tweet.article.content.blocks as Array<{ text?: string; type?: string; entityRanges?: Array<{ key: number; length: number; offset: number }> }>;
+      const mediaEntities = (tweet.article.media_entities || []) as Array<{ media_id?: string; media_info?: { original_img_url?: string } }>;
+      const entityMap = tweet.article.content.entityMap as Array<{ key: string; value: { type: string; data: { mediaItems?: Array<{ mediaId: string }> } } }> | undefined;
+
+      // Build lookup: mediaId → image URL from media_entities
+      const mediaIdToUrl: Record<string, string> = {};
+      for (const me of mediaEntities) {
+        if (me.media_id && me.media_info?.original_img_url) {
+          mediaIdToUrl[me.media_id] = me.media_info.original_img_url;
+        }
+      }
+
+      // Build lookup: entity key → image URL via entityMap → mediaId → media_entity
+      const entityKeyToUrl: Record<string, string> = {};
+      if (entityMap && Array.isArray(entityMap)) {
+        for (const entry of entityMap) {
+          const key = entry.key;
+          const val = entry.value;
+          if (val?.type === 'MEDIA' && val.data?.mediaItems) {
+            for (const item of val.data.mediaItems) {
+              if (item.mediaId && mediaIdToUrl[item.mediaId]) {
+                entityKeyToUrl[key] = mediaIdToUrl[item.mediaId];
+              }
+            }
+          }
+        }
+      }
+
+      let fallbackMediaIndex = 0;
       const parts: string[] = [];
 
       for (const block of blocks) {
         if (block.type === 'atomic') {
-          // Atomic blocks are image placeholders — insert inline image marker
-          if (mediaIndex < mediaEntities.length) {
-            const imgUrl = mediaEntities[mediaIndex]?.media_info?.original_img_url;
-            if (imgUrl) parts.push(`[image:${imgUrl}]`);
-            mediaIndex++;
+          // Resolve image URL via entity key chain: block → entityRanges → entityMap → mediaId → URL
+          let imgUrl: string | undefined;
+          const entityKey = block.entityRanges?.[0]?.key;
+          if (entityKey !== undefined && entityKeyToUrl[String(entityKey)]) {
+            imgUrl = entityKeyToUrl[String(entityKey)];
+          } else if (fallbackMediaIndex < mediaEntities.length) {
+            // Fallback to sequential if entity key mapping unavailable
+            imgUrl = mediaEntities[fallbackMediaIndex]?.media_info?.original_img_url;
           }
+          if (imgUrl) parts.push(`[image:${imgUrl}]`);
+          fallbackMediaIndex++;
         } else if (block.text && block.text.length > 0) {
           parts.push(block.text);
         }

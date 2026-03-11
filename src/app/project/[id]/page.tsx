@@ -153,6 +153,98 @@ export default function ProjectPage() {
     return text.replace(/\[image:[^\]]+\]\n?\n?/g, '');
   }
 
+  // Basic markdown rendering for GitHub READMEs and other content
+  function renderMarkdownLine(line: string, key: string): React.ReactNode {
+    // Render inline markdown: **bold**, `code`, [links](url)
+    function renderInline(text: string): React.ReactNode[] {
+      const parts: React.ReactNode[] = [];
+      // Combined regex: **bold**, `code`, [link](url)
+      const regex = /(\*\*(.+?)\*\*)|(`([^`]+)`)|(\[([^\]]+)\]\(([^)]+)\))/g;
+      let lastIndex = 0;
+      let match;
+      let partKey = 0;
+      while ((match = regex.exec(text)) !== null) {
+        if (match.index > lastIndex) {
+          parts.push(text.slice(lastIndex, match.index));
+        }
+        if (match[1]) {
+          // **bold**
+          parts.push(<strong key={partKey++} style={{ color: 'var(--text-primary)', fontWeight: 600 }}>{match[2]}</strong>);
+        } else if (match[3]) {
+          // `code`
+          parts.push(<code key={partKey++} className="font-mono text-[0.9em] px-1.5 py-0.5 rounded" style={{ background: 'var(--bg)', color: 'var(--accent)' }}>{match[4]}</code>);
+        } else if (match[5]) {
+          // [link](url)
+          parts.push(<a key={partKey++} href={match[7]} target="_blank" rel="noopener noreferrer" style={{ color: 'var(--accent)', textDecoration: 'underline', textUnderlineOffset: '2px' }}>{match[6]}</a>);
+        }
+        lastIndex = match.index + match[0].length;
+      }
+      if (lastIndex < text.length) {
+        parts.push(text.slice(lastIndex));
+      }
+      return parts;
+    }
+
+    // Headers: # through ####
+    const h1Match = line.match(/^# (.+)$/);
+    if (h1Match) return <h2 key={key} className="font-bold mt-8 mb-3" style={{ fontSize: '22px', color: 'var(--text-primary)', lineHeight: 1.3 }}>{renderInline(h1Match[1])}</h2>;
+    const h2Match = line.match(/^## (.+)$/);
+    if (h2Match) return <h3 key={key} className="font-bold mt-7 mb-2" style={{ fontSize: '19px', color: 'var(--text-primary)', lineHeight: 1.3 }}>{renderInline(h2Match[1])}</h3>;
+    const h3Match = line.match(/^### (.+)$/);
+    if (h3Match) return <h4 key={key} className="font-semibold mt-5 mb-2" style={{ fontSize: '17px', color: 'var(--text-primary)', lineHeight: 1.4 }}>{renderInline(h3Match[1])}</h4>;
+    const h4Match = line.match(/^#### (.+)$/);
+    if (h4Match) return <h5 key={key} className="font-semibold mt-4 mb-1" style={{ fontSize: '15px', color: 'var(--text-primary)', lineHeight: 1.4 }}>{renderInline(h4Match[1])}</h5>;
+
+    // Horizontal rule
+    if (/^---+$/.test(line.trim())) return <hr key={key} className="my-6" style={{ border: 'none', borderTop: '1px solid var(--border-subtle)' }} />;
+
+    // Unordered list item
+    const ulMatch = line.match(/^[-*] (.+)$/);
+    if (ulMatch) return <div key={key} className="flex gap-2 ml-1 mb-1"><span style={{ color: 'var(--text-tertiary)' }}>•</span><span>{renderInline(ulMatch[1])}</span></div>;
+
+    // Blockquote
+    if (line.startsWith('> ')) return <blockquote key={key} className="pl-4 my-1" style={{ borderLeft: '3px solid var(--border)', color: 'var(--text-tertiary)', fontStyle: 'italic' }}>{renderInline(line.slice(2))}</blockquote>;
+
+    // Empty line = paragraph break
+    if (line.trim() === '') return <div key={key} className="h-3" />;
+
+    // Regular text with inline formatting
+    return <p key={key} className="mb-1">{renderInline(line)}</p>;
+  }
+
+  // Render full body with markdown support, handling code blocks
+  function renderMarkdownBody(body: string): React.ReactNode[] {
+    const lines = body.split('\n');
+    const elements: React.ReactNode[] = [];
+    let i = 0;
+
+    while (i < lines.length) {
+      // Fenced code block: ```
+      if (lines[i].startsWith('```')) {
+        const lang = lines[i].slice(3).trim();
+        const codeLines: string[] = [];
+        i++;
+        while (i < lines.length && !lines[i].startsWith('```')) {
+          codeLines.push(lines[i]);
+          i++;
+        }
+        i++; // skip closing ```
+        elements.push(
+          <pre key={`code-${i}`} className="rounded-xl px-4 py-3 my-4 overflow-x-auto text-sm font-mono" style={{ background: 'var(--bg)', border: '1px solid var(--border-subtle)', color: 'var(--text-secondary)', lineHeight: 1.6 }}>
+            {lang && <div className="text-[10px] uppercase tracking-wider mb-2" style={{ color: 'var(--text-tertiary)' }}>{lang}</div>}
+            <code>{codeLines.join('\n')}</code>
+          </pre>
+        );
+        continue;
+      }
+
+      elements.push(renderMarkdownLine(lines[i], `line-${i}`));
+      i++;
+    }
+
+    return elements;
+  }
+
   if (loading) {
     return (
       <div className="min-h-dvh flex items-center justify-center">
@@ -239,7 +331,7 @@ export default function ProjectPage() {
                 )}
               </div>
 
-              {/* Body with article typography */}
+              {/* Body with article typography and markdown rendering */}
               {viewing.body?.includes('[image:') ? (
                 <div style={{ fontSize: '16px', lineHeight: 1.75, color: 'var(--text-secondary)' }}>
                   {viewing.body.split(/(\[image:[^\]]+\])/).map((part, i) => {
@@ -247,7 +339,7 @@ export default function ProjectPage() {
                     if (imgMatch) {
                       return <img key={i} src={imgMatch[1]} alt="Article image" className="w-full rounded-xl my-6" style={{ border: '1px solid var(--border-subtle)' }} loading="lazy" />;
                     }
-                    return part ? <span key={i} className="whitespace-pre-wrap">{part}</span> : null;
+                    return part ? <div key={i}>{renderMarkdownBody(part)}</div> : null;
                   })}
                 </div>
               ) : (
@@ -259,8 +351,8 @@ export default function ProjectPage() {
                       ))}
                     </div>
                   )}
-                  <div className="whitespace-pre-wrap" style={{ fontSize: '16px', lineHeight: 1.75, color: 'var(--text-secondary)' }}>
-                    {viewing.body}
+                  <div style={{ fontSize: '16px', lineHeight: 1.75, color: 'var(--text-secondary)' }}>
+                    {renderMarkdownBody(viewing.body)}
                   </div>
                 </>
               )}
