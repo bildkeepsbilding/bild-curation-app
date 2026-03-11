@@ -97,6 +97,71 @@ function parseRedditJsonResponse(data: unknown): RedditJsonResult {
   return { postData, commentsData };
 }
 
+// ── Reddit OAuth Strategy (works on Vercel — official API, not IP-blocked) ──
+
+let redditAccessToken: string | null = null;
+let redditTokenExpiry = 0;
+
+async function getRedditAccessToken(): Promise<string> {
+  const clientId = process.env.REDDIT_CLIENT_ID;
+  const clientSecret = process.env.REDDIT_CLIENT_SECRET;
+  if (!clientId || !clientSecret) throw new Error('Reddit OAuth credentials not configured');
+
+  // Reuse token if still valid (with 60s buffer)
+  if (redditAccessToken && Date.now() < redditTokenExpiry - 60000) {
+    return redditAccessToken;
+  }
+
+  const credentials = Buffer.from(`${clientId}:${clientSecret}`).toString('base64');
+  const response = await fetch('https://www.reddit.com/api/v1/access_token', {
+    method: 'POST',
+    headers: {
+      'Authorization': `Basic ${credentials}`,
+      'Content-Type': 'application/x-www-form-urlencoded',
+      'User-Agent': 'BildCurationApp/1.0',
+    },
+    body: 'grant_type=client_credentials',
+  });
+
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(`Reddit OAuth token request failed: ${response.status} ${text}`);
+  }
+
+  const data = await response.json();
+  redditAccessToken = data.access_token;
+  redditTokenExpiry = Date.now() + (data.expires_in || 3600) * 1000;
+  return redditAccessToken!;
+}
+
+// Extract Reddit post ID from URL for API lookup
+function extractRedditPostId(url: string): string | null {
+  const match = url.match(/\/comments\/([a-z0-9]+)/i);
+  return match ? match[1] : null;
+}
+
+async function fetchRedditOAuth(url: string): Promise<RedditJsonResult> {
+  const token = await getRedditAccessToken();
+  const postId = extractRedditPostId(url);
+  if (!postId) throw new Error('Could not extract Reddit post ID from URL');
+
+  // Use the Reddit OAuth API endpoint
+  const apiUrl = `https://oauth.reddit.com/comments/${postId}?raw_json=1&limit=50`;
+  const response = await fetch(apiUrl, {
+    headers: {
+      'Authorization': `Bearer ${token}`,
+      'User-Agent': 'BildCurationApp/1.0',
+    },
+  });
+
+  if (!response.ok) {
+    throw new Error(`Reddit OAuth API returned ${response.status}`);
+  }
+
+  const data = await response.json();
+  return parseRedditJsonResponse(data);
+}
+
 // Strategy 1: www.reddit.com .json endpoint
 async function fetchRedditJsonWww(url: string, attempt = 0): Promise<RedditJsonResult> {
   let cleanUrl = url.split('?')[0];
@@ -196,24 +261,44 @@ async function fetchRedditJsonOld(url: string): Promise<RedditJsonResult> {
 }
 
 async function fetchReddit(url: string) {
-  let postData: RedditPost;
+  let postData!: RedditPost;
   let commentsData: Array<{ kind: string; data: RedditComment & { replies?: { data?: { children?: Array<{ kind: string; data: RedditComment }> } } } }> = [];
   let extractionMethod = '';
   const errors: string[] = [];
 
-  // Strategy 1: www.reddit.com .json
-  try {
-    const result = await fetchRedditJsonWww(url);
-    postData = result.postData;
-    commentsData = result.commentsData;
-    extractionMethod = 'www.reddit.com/json';
-    console.log(`[Reddit] Strategy 1 succeeded: ${extractionMethod}`);
-  } catch (err1) {
-    const msg1 = err1 instanceof Error ? err1.message : 'unknown';
-    errors.push(`Strategy 1 (www JSON): ${msg1}`);
-    console.warn(`[Reddit] Strategy 1 failed: ${msg1}`);
+  // Strategy 0: Reddit OAuth API (works on Vercel — not IP-blocked)
+  const hasOAuth = !!(process.env.REDDIT_CLIENT_ID && process.env.REDDIT_CLIENT_SECRET);
+  if (hasOAuth) {
+    try {
+      const result = await fetchRedditOAuth(url);
+      postData = result.postData;
+      commentsData = result.commentsData;
+      extractionMethod = 'oauth.reddit.com';
+      console.log(`[Reddit] OAuth strategy succeeded`);
+    } catch (err0) {
+      const msg0 = err0 instanceof Error ? err0.message : 'unknown';
+      errors.push(`OAuth: ${msg0}`);
+      console.warn(`[Reddit] OAuth strategy failed: ${msg0}`);
+    }
+  }
 
-    // Strategy 2: old.reddit.com HTML scraping
+  // Strategy 1: www.reddit.com .json (fallback for local dev without OAuth)
+  if (!extractionMethod) {
+    try {
+      const result = await fetchRedditJsonWww(url);
+      postData = result.postData;
+      commentsData = result.commentsData;
+      extractionMethod = 'www.reddit.com/json';
+      console.log(`[Reddit] Strategy 1 succeeded: ${extractionMethod}`);
+    } catch (err1) {
+      const msg1 = err1 instanceof Error ? err1.message : 'unknown';
+      errors.push(`Strategy 1 (www JSON): ${msg1}`);
+      console.warn(`[Reddit] Strategy 1 failed: ${msg1}`);
+    }
+  }
+
+  // Strategy 2: old.reddit.com HTML scraping
+  if (!extractionMethod) {
     try {
       const htmlResult = await fetchRedditOldHtml(url);
       extractionMethod = 'old.reddit.com/html';
@@ -233,20 +318,22 @@ async function fetchReddit(url: string) {
       const msg2 = err2 instanceof Error ? err2.message : 'unknown';
       errors.push(`Strategy 2 (old HTML): ${msg2}`);
       console.warn(`[Reddit] Strategy 2 failed: ${msg2}`);
+    }
+  }
 
-      // Strategy 3: old.reddit.com .json endpoint (different rate limiting)
-      try {
-        const result = await fetchRedditJsonOld(url);
-        postData = result.postData;
-        commentsData = result.commentsData;
-        extractionMethod = 'old.reddit.com/json';
-        console.log(`[Reddit] Strategy 3 succeeded: ${extractionMethod}`);
-      } catch (err3) {
-        const msg3 = err3 instanceof Error ? err3.message : 'unknown';
-        errors.push(`Strategy 3 (old JSON): ${msg3}`);
-        console.error(`[Reddit] All 3 strategies failed:`, errors);
-        throw new Error(`Reddit extraction failed: ${errors.join(' | ')}`);
-      }
+  // Strategy 3: old.reddit.com .json endpoint
+  if (!extractionMethod) {
+    try {
+      const result = await fetchRedditJsonOld(url);
+      postData = result.postData;
+      commentsData = result.commentsData;
+      extractionMethod = 'old.reddit.com/json';
+      console.log(`[Reddit] Strategy 3 succeeded: ${extractionMethod}`);
+    } catch (err3) {
+      const msg3 = err3 instanceof Error ? err3.message : 'unknown';
+      errors.push(`Strategy 3 (old JSON): ${msg3}`);
+      console.error(`[Reddit] All strategies failed:`, errors);
+      throw new Error(`Reddit extraction failed: ${errors.join(' | ')}`);
     }
   }
 
