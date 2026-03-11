@@ -153,12 +153,27 @@ async function fetchViaFxTwitter(username: string, statusId: string): Promise<{
     let isArticle = false;
 
     // Extract full article content from FxTwitter's article.content.blocks
+    // Interleaves text and inline images using [image:URL] markers
     if (tweet.article?.content?.blocks) {
-      const blocks = tweet.article.content.blocks as Array<{ text?: string; type?: string }>;
-      const articleText = blocks
-        .map((b) => b.text || '')
-        .filter((t) => t.length > 0)
-        .join('\n\n');
+      const blocks = tweet.article.content.blocks as Array<{ text?: string; type?: string; entityRanges?: Array<{ key: number }> }>;
+      const mediaEntities = (tweet.article.media_entities || []) as Array<{ media_info?: { original_img_url?: string } }>;
+      let mediaIndex = 0;
+      const parts: string[] = [];
+
+      for (const block of blocks) {
+        if (block.type === 'atomic') {
+          // Atomic blocks are image placeholders — insert inline image marker
+          if (mediaIndex < mediaEntities.length) {
+            const imgUrl = mediaEntities[mediaIndex]?.media_info?.original_img_url;
+            if (imgUrl) parts.push(`[image:${imgUrl}]`);
+            mediaIndex++;
+          }
+        } else if (block.text && block.text.length > 0) {
+          parts.push(block.text);
+        }
+      }
+
+      const articleText = parts.join('\n\n');
       if (articleText.length > text.length) {
         const title = tweet.article.title || '';
         text = title ? `${title}\n\n${articleText}` : articleText;
