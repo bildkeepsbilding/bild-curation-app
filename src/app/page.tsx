@@ -216,6 +216,7 @@ export default function Home() {
                       src={project.coverImage}
                       alt=""
                       className="w-full h-full object-cover"
+                      referrerPolicy="no-referrer"
                     />
                   ) : (
                     <div className="w-full h-full flex items-center justify-center" style={{

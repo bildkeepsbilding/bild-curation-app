@@ -298,7 +298,7 @@ export default function ProjectPage() {
             {/* Hero image full-bleed */}
             {viewing.images && viewing.images.length > 0 && !viewing.body?.includes('[image:') && (
               <div className="w-full" style={{ maxHeight: '320px', overflow: 'hidden' }}>
-                <img src={viewing.images[0]} alt="" className="w-full object-cover" style={{ maxHeight: '320px' }} />
+                <img src={viewing.images[0]} alt="" className="w-full object-cover" style={{ maxHeight: '320px' }} referrerPolicy="no-referrer" />
               </div>
             )}
 
@@ -353,7 +353,7 @@ export default function ProjectPage() {
                   {viewing.body.split(/(\[image:[^\]]+\])/).map((part, i) => {
                     const imgMatch = part.match(/^\[image:(.+)\]$/);
                     if (imgMatch) {
-                      return <img key={i} src={imgMatch[1]} alt="Article image" className="w-full rounded-xl my-6" style={{ border: '1px solid var(--border-subtle)' }} loading="lazy" />;
+                      return <img key={i} src={imgMatch[1]} alt="Article image" className="w-full rounded-xl my-6" style={{ border: '1px solid var(--border-subtle)' }} loading="lazy" referrerPolicy="no-referrer" />;
                     }
                     return part ? <div key={i}>{renderMarkdownBody(part)}</div> : null;
                   })}
@@ -363,7 +363,7 @@ export default function ProjectPage() {
                   {viewing.images && viewing.images.length > 1 && (
                     <div className="mb-6 space-y-3">
                       {viewing.images.slice(1).map((img, i) => (
-                        <img key={i} src={img} alt={`Image ${i + 2}`} className="w-full rounded-xl" style={{ border: '1px solid var(--border-subtle)' }} loading="lazy" />
+                        <img key={i} src={img} alt={`Image ${i + 2}`} className="w-full rounded-xl" style={{ border: '1px solid var(--border-subtle)' }} loading="lazy" referrerPolicy="no-referrer" />
                       ))}
                     </div>
                   )}
@@ -556,7 +556,7 @@ export default function ProjectPage() {
                   {/* Hero image with gradient fade */}
                   {hasImage && (
                     <div className="relative w-full" style={{ height: '160px' }}>
-                      <img src={capture.images[0]} alt="" className="w-full h-full object-cover" loading="lazy" />
+                      <img src={capture.images[0]} alt="" className="w-full h-full object-cover" loading="lazy" referrerPolicy="no-referrer" />
                       <div className="absolute inset-0" style={{ background: 'linear-gradient(to top, var(--bg-elevated) 0%, transparent 60%)' }} />
                       {/* Platform badge overlaid */}
                       <span className="absolute top-3 left-3 px-2 py-0.5 rounded-md text-[10px] font-semibold" style={{ background: PLATFORM_LABELS[capture.platform]?.color + 'dd', color: '#fff', backdropFilter: 'blur(4px)' }}>
