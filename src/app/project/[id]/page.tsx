@@ -363,33 +363,44 @@ export default function ProjectPage() {
                 <svg width="12" height="12" viewBox="0 0 16 16" fill="none"><path d="M6 4h6v6M12 4L4 12" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" /></svg>
               </a>
 
-              {/* Notes callout */}
-              {viewing.note && !editingNote && (
-                <div className="mt-6 px-4 py-3 rounded-xl" style={{ background: 'var(--accent-dim)', borderLeft: '3px solid var(--accent)' }}>
-                  <p className="text-xs font-semibold mb-1" style={{ color: 'var(--accent)' }}>Your Notes</p>
-                  <p className="text-sm" style={{ color: 'var(--text-primary)', lineHeight: 1.6 }}>{viewing.note}</p>
+              {/* Context for Claude — prominent briefing section */}
+              <div className="mt-8 mb-4 rounded-2xl overflow-hidden" style={{ border: '1px solid var(--accent)40', background: 'var(--accent-dim)' }}>
+                <div className="flex items-center gap-2 px-4 pt-3 pb-2">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" style={{ color: 'var(--accent)', flexShrink: 0 }}>
+                    <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z" fill="currentColor" />
+                  </svg>
+                  <p className="text-xs font-semibold tracking-wide uppercase" style={{ color: 'var(--accent)' }}>Context for Claude</p>
                 </div>
-              )}
+                {editingNote ? (
+                  <div className="px-4 pb-3">
+                    <textarea
+                      ref={noteInputRef}
+                      value={noteText}
+                      onChange={(e) => setNoteText(e.target.value)}
+                      placeholder="Why did you save this? How should Claude use it? What&apos;s the key takeaway?"
+                      rows={4}
+                      className="w-full px-3 py-2.5 rounded-xl text-sm outline-none resize-none"
+                      style={{ background: 'var(--bg)', border: '1px solid var(--border)', color: 'var(--text-primary)', lineHeight: 1.6 }}
+                    />
+                    <div className="flex gap-2 mt-2 justify-end">
+                      <button onClick={() => setEditingNote(false)} className="px-3 py-1.5 rounded-lg text-xs" style={{ color: 'var(--text-tertiary)' }}>Cancel</button>
+                      <button onClick={handleSaveNote} className="px-4 py-1.5 rounded-lg text-xs font-semibold" style={{ background: 'var(--accent)', color: 'var(--bg)' }}>Save</button>
+                    </div>
+                  </div>
+                ) : viewing.note ? (
+                  <button onClick={() => { setNoteText(viewing.note || ''); setEditingNote(true); }} className="w-full text-left px-4 pb-3">
+                    <p className="text-sm" style={{ color: 'var(--text-primary)', lineHeight: 1.6 }}>{viewing.note}</p>
+                    <p className="text-[10px] mt-2" style={{ color: 'var(--text-tertiary)' }}>Tap to edit</p>
+                  </button>
+                ) : (
+                  <button onClick={() => { setNoteText(''); setEditingNote(true); }} className="w-full text-left px-4 pb-4">
+                    <p className="text-sm" style={{ color: 'var(--text-tertiary)', lineHeight: 1.5 }}>
+                      Why did you save this? How should Claude use it?
+                    </p>
+                  </button>
+                )}
+              </div>
             </div>
-          </div>
-
-          {/* Bottom note input */}
-          <div className="px-5 py-3 safe-bottom" style={{ borderTop: '1px solid var(--border-subtle)' }}>
-            {editingNote ? (
-              <div className="flex gap-2 mx-auto" style={{ maxWidth: '720px' }}>
-                <textarea ref={noteInputRef} value={noteText} onChange={(e) => setNoteText(e.target.value)} placeholder="Add your thoughts..." rows={2} className="flex-1 px-3 py-2 rounded-xl text-sm outline-none resize-none" style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border)', color: 'var(--text-primary)' }} />
-                <div className="flex flex-col gap-1">
-                  <button onClick={handleSaveNote} className="px-3 py-1.5 rounded-lg text-xs font-semibold" style={{ background: 'var(--accent)', color: 'var(--bg)' }}>Save</button>
-                  <button onClick={() => setEditingNote(false)} className="px-3 py-1.5 rounded-lg text-xs" style={{ color: 'var(--text-tertiary)' }}>Cancel</button>
-                </div>
-              </div>
-            ) : (
-              <div className="mx-auto" style={{ maxWidth: '720px' }}>
-                <button onClick={() => { setNoteText(viewing.note || ''); setEditingNote(true); }} className="w-full text-left px-3 py-2.5 rounded-xl text-sm" style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border-subtle)', color: viewing.note ? 'var(--text-primary)' : 'var(--text-tertiary)' }}>
-                  {viewing.note ? 'Edit your notes...' : 'Tap to add your thoughts...'}
-                </button>
-              </div>
-            )}
           </div>
         </div>
       )}
@@ -528,9 +539,9 @@ export default function ProjectPage() {
                       <span className="text-[10px] font-mono" style={{ color: 'var(--text-tertiary)', opacity: 0.6 }}>{formatTime(capture.createdAt)}</span>
                     </div>
 
-                    {/* Note indicator */}
+                    {/* Context for Claude indicator */}
                     {capture.note && (
-                      <p className="text-[10px] mt-2 px-2 py-1 rounded-lg truncate" style={{ background: 'var(--accent-dim)', color: 'var(--accent)' }}>💡 {truncate(capture.note, 50)}</p>
+                      <p className="text-[10px] mt-2 px-2 py-1 rounded-lg truncate" style={{ background: 'var(--accent-dim)', color: 'var(--accent)' }}>🧠 {truncate(capture.note, 50)}</p>
                     )}
                   </div>
                 </button>

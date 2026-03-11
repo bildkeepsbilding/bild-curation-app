@@ -242,7 +242,7 @@ export async function exportProjectAsMarkdown(projectId: string, filterPlatform?
     md += `author: ${c.author}\n`;
     md += `date: ${new Date(c.createdAt).toISOString().split('T')[0]}\n`;
     md += `url: ${c.url}\n`;
-    if (c.note) md += `notes: ${c.note}\n`;
+    if (c.note) md += `context_for_claude: ${c.note}\n`;
     md += `---\n\n`;
 
     md += `## ${c.title}\n\n`;
