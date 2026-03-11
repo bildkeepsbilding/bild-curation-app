@@ -8,6 +8,7 @@ import {
   addCapture,
   deleteCapture,
   updateCapture,
+  updateProject,
   exportProjectAsMarkdown,
   type Project,
   type Capture,
@@ -46,8 +47,11 @@ export default function ProjectPage() {
   const [noteText, setNoteText] = useState('');
   const [copied, setCopied] = useState(false);
   const [activeFilter, setActiveFilter] = useState<Platform | 'all'>('all');
+  const [editingBrief, setEditingBrief] = useState(false);
+  const [briefText, setBriefText] = useState('');
   const urlInputRef = useRef<HTMLInputElement>(null);
   const noteInputRef = useRef<HTMLTextAreaElement>(null);
+  const briefInputRef = useRef<HTMLTextAreaElement>(null);
 
   const loadData = useCallback(async () => {
     try {
@@ -63,6 +67,7 @@ export default function ProjectPage() {
 
   useEffect(() => { loadData(); }, [loadData]);
   useEffect(() => { if (editingNote && noteInputRef.current) noteInputRef.current.focus(); }, [editingNote]);
+  useEffect(() => { if (editingBrief && briefInputRef.current) briefInputRef.current.focus(); }, [editingBrief]);
 
   const filteredCaptures = activeFilter === 'all'
     ? captures
@@ -137,6 +142,17 @@ export default function ProjectPage() {
       await loadData();
     } catch (e) {
       console.error('Save note failed:', e);
+    }
+  }
+
+  async function handleSaveBrief() {
+    if (!project) return;
+    try {
+      await updateProject(projectId, { brief: briefText });
+      setProject({ ...project, brief: briefText });
+      setEditingBrief(false);
+    } catch (e) {
+      console.error('Save brief failed:', e);
     }
   }
 
@@ -432,6 +448,42 @@ export default function ProjectPage() {
           )}
         </div>
       </header>
+
+      {/* ── Project Brief ── */}
+      <div className="px-5 mb-4">
+        <div className="rounded-xl overflow-hidden" style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border-subtle)' }}>
+          <div className="flex items-center gap-2 px-4 pt-3 pb-1">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" style={{ color: 'var(--accent)', flexShrink: 0 }}>
+              <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8l-6-6z" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+              <path d="M14 2v6h6M16 13H8M16 17H8M10 9H8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+            <p className="text-[10px] font-semibold tracking-wide uppercase" style={{ color: 'var(--accent)' }}>Project Brief</p>
+          </div>
+          {editingBrief ? (
+            <div className="px-4 pb-3">
+              <textarea
+                ref={briefInputRef}
+                value={briefText}
+                onChange={(e) => setBriefText(e.target.value)}
+                placeholder="What is this project about? What are you trying to learn or build?"
+                rows={3}
+                className="w-full px-3 py-2 rounded-lg text-sm outline-none resize-none"
+                style={{ background: 'var(--bg)', border: '1px solid var(--border)', color: 'var(--text-primary)', lineHeight: 1.6 }}
+              />
+              <div className="flex gap-2 mt-2 justify-end">
+                <button onClick={() => setEditingBrief(false)} className="px-3 py-1 rounded-lg text-xs" style={{ color: 'var(--text-tertiary)' }}>Cancel</button>
+                <button onClick={handleSaveBrief} className="px-4 py-1 rounded-lg text-xs font-semibold" style={{ background: 'var(--accent)', color: 'var(--bg)' }}>Save</button>
+              </div>
+            </div>
+          ) : (
+            <button onClick={() => { setBriefText(project?.brief || ''); setEditingBrief(true); }} className="w-full text-left px-4 pb-3 pt-1">
+              <p className="text-sm" style={{ color: project?.brief ? 'var(--text-secondary)' : 'var(--text-tertiary)', lineHeight: 1.5 }}>
+                {project?.brief || 'What is this project about? What are you trying to learn or build?'}
+              </p>
+            </button>
+          )}
+        </div>
+      </div>
 
       {/* ── URL Input ── */}
       <div className="px-5 mb-4">

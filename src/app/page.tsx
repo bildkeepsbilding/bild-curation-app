@@ -15,6 +15,7 @@ export default function Home() {
   const [loading, setLoading] = useState(true);
   const [showCreate, setShowCreate] = useState(false);
   const [newName, setNewName] = useState('');
+  const [newBrief, setNewBrief] = useState('');
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -57,8 +58,9 @@ export default function Home() {
     if (!name) return;
 
     try {
-      await createProject(name);
+      await createProject(name, newBrief.trim());
       setNewName('');
+      setNewBrief('');
       setShowCreate(false);
       await loadProjects();
     } catch (e) {
@@ -130,20 +132,32 @@ export default function Home() {
           onClick={(e) => { if (e.target === e.currentTarget) { setShowCreate(false); setNewName(''); } }}
         >
           <div className="w-full sm:max-w-md p-6 rounded-t-2xl sm:rounded-2xl animate-fade-up" style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border)' }}>
-            <h2 className="text-lg font-semibold mb-4">New Project</h2>
+            <h2 className="text-lg font-semibold mb-4" style={{ color: 'var(--text-primary)' }}>New Project</h2>
             <input
               ref={inputRef}
               type="text"
               value={newName}
               onChange={(e) => setNewName(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && handleCreate()}
+              onKeyDown={(e) => e.key === 'Enter' && newName.trim() && handleCreate()}
               placeholder="Project name..."
               className="w-full px-4 py-3 rounded-xl text-base outline-none"
               style={{ background: 'var(--bg)', border: '1px solid var(--border)', color: 'var(--text-primary)' }}
               maxLength={50}
             />
+            <div className="mt-3">
+              <label className="text-xs font-semibold tracking-wide uppercase mb-1.5 block" style={{ color: 'var(--accent)' }}>Project Brief</label>
+              <textarea
+                value={newBrief}
+                onChange={(e) => setNewBrief(e.target.value)}
+                placeholder="What is this project about? What are you trying to learn or build?"
+                rows={3}
+                className="w-full px-4 py-3 rounded-xl text-sm outline-none resize-none"
+                style={{ background: 'var(--bg)', border: '1px solid var(--border)', color: 'var(--text-primary)', lineHeight: 1.6 }}
+              />
+              <p className="text-[10px] mt-1 px-1" style={{ color: 'var(--text-tertiary)' }}>This becomes the header of every Claude export — giving immediate context about your collection.</p>
+            </div>
             <div className="flex gap-3 mt-4">
-              <button onClick={() => { setShowCreate(false); setNewName(''); }} className="flex-1 py-3 rounded-xl text-sm font-medium active:scale-95" style={{ background: 'var(--bg)', color: 'var(--text-secondary)', border: '1px solid var(--border)' }}>Cancel</button>
+              <button onClick={() => { setShowCreate(false); setNewName(''); setNewBrief(''); }} className="flex-1 py-3 rounded-xl text-sm font-medium active:scale-95" style={{ background: 'var(--bg)', color: 'var(--text-secondary)', border: '1px solid var(--border)' }}>Cancel</button>
               <button onClick={handleCreate} disabled={!newName.trim()} className="flex-1 py-3 rounded-xl text-sm font-semibold active:scale-95 disabled:opacity-30" style={{ background: 'var(--accent)', color: 'var(--bg)' }}>Create</button>
             </div>
           </div>
@@ -241,6 +255,11 @@ export default function Home() {
                   <h3 className="text-lg font-semibold truncate" style={{ color: 'var(--text-primary)' }}>
                     {project.name}
                   </h3>
+                  {project.brief && (
+                    <p className="text-xs mt-1 line-clamp-2" style={{ color: 'var(--text-tertiary)', lineHeight: 1.5 }}>
+                      {project.brief}
+                    </p>
+                  )}
                   <div className="flex items-center gap-3 mt-2">
                     {/* Platform dots */}
                     {project.platforms.length > 0 && (

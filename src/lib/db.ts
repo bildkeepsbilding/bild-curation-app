@@ -6,6 +6,7 @@ export type Platform = 'reddit' | 'twitter' | 'github' | 'article' | 'other';
 export interface Project {
   id: string;
   name: string;
+  brief: string;
   createdAt: number;
   updatedAt: number;
   captureCount: number;
@@ -66,11 +67,12 @@ function openDB(): Promise<IDBDatabase> {
   });
 }
 
-export async function createProject(name: string): Promise<Project> {
+export async function createProject(name: string, brief: string = ''): Promise<Project> {
   const db = await openDB();
   const project: Project = {
     id: generateId(),
     name,
+    brief,
     createdAt: Date.now(),
     updatedAt: Date.now(),
     captureCount: 0,
@@ -234,6 +236,11 @@ export async function exportProjectAsMarkdown(projectId: string, filterPlatform?
 
   const filterLabel = filterPlatform && filterPlatform !== 'all' ? ` (${filterPlatform})` : '';
   let md = `# ${project.name}${filterLabel}\n\nExported: ${new Date().toISOString().split('T')[0]}\nCaptures: ${captures.length}\n\n`;
+
+  if (project.brief) {
+    md += `## Project Brief\n\n${project.brief}\n\n`;
+  }
+
 
   for (const c of captures) {
     // YAML-style header block for structured parsing
