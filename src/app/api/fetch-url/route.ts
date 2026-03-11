@@ -8,6 +8,7 @@ export const maxDuration = 60;
 interface RedditPost {
   title: string;
   selftext: string;
+  selftext_html?: string;
   author: string;
   subreddit: string;
   score: number;
@@ -17,13 +18,30 @@ interface RedditPost {
   created_utc: number;
   permalink: string;
   link_flair_text?: string;
+  thumbnail?: string;
+  thumbnail_width?: number;
+  thumbnail_height?: number;
   preview?: {
     images?: Array<{
       source: { url: string; width: number; height: number };
+      resolutions?: Array<{ url: string; width: number; height: number }>;
     }>;
   };
   is_gallery?: boolean;
-  media_metadata?: Record<string, { s?: { u?: string } }>;
+  gallery_data?: { items: Array<{ media_id: string; id: number }> };
+  media_metadata?: Record<string, {
+    status?: string;
+    e?: string;
+    m?: string;
+    s?: { u?: string; gif?: string; mp4?: string; x?: number; y?: number };
+    p?: Array<{ u?: string; x: number; y: number }>;
+  }>;
+  is_video?: boolean;
+  is_reddit_media_domain?: boolean;
+  media?: { reddit_video?: { fallback_url?: string; scrubber_media_url?: string } };
+  secure_media?: { reddit_video?: { fallback_url?: string; scrubber_media_url?: string } };
+  crosspost_parent_list?: Array<RedditPost>;
+  post_hint?: string;
 }
 
 interface RedditComment {
@@ -33,22 +51,110 @@ interface RedditComment {
   created_utc: number;
 }
 
+function cleanImageUrl(url: string): string {
+  return url.replace(/&amp;/g, '&');
+}
+
+function isImageUrl(url: string): boolean {
+  return /\.(jpg|jpeg|png|gif|webp)(\?|$)/i.test(url);
+}
+
 function extractRedditImages(postData: RedditPost): string[] {
+  const seen = new Set<string>();
   const images: string[] = [];
-  if (postData.is_gallery && postData.media_metadata) {
-    for (const item of Object.values(postData.media_metadata)) {
-      if (item.s?.u) images.push(item.s.u.replace(/&amp;/g, '&'));
+
+  function addImage(url: string | undefined | null) {
+    if (!url) return;
+    const clean = cleanImageUrl(url);
+    if (!seen.has(clean)) {
+      seen.add(clean);
+      images.push(clean);
     }
   }
+
+  // 1. Gallery posts — use media_metadata with gallery_data ordering if available
+  if (postData.media_metadata) {
+    const orderedIds = postData.gallery_data?.items?.map(i => i.media_id);
+    const metaEntries = Object.entries(postData.media_metadata);
+
+    // Sort by gallery_data order if available
+    const sortedEntries = orderedIds
+      ? orderedIds
+          .map(id => [id, postData.media_metadata![id]] as const)
+          .filter(([, v]) => v)
+      : metaEntries;
+
+    for (const [, item] of sortedEntries) {
+      if (item.status && item.status !== 'valid') continue;
+      // Prefer full-size image, then gif, then preview array
+      addImage(item.s?.u);
+      addImage(item.s?.gif);
+      if (!item.s?.u && !item.s?.gif && item.p?.length) {
+        // Use largest preview if no source
+        addImage(item.p[item.p.length - 1]?.u);
+      }
+    }
+  }
+
+  // 2. Preview images (most common for image/link posts)
   if (postData.preview?.images) {
     for (const img of postData.preview.images) {
-      if (img.source?.url) images.push(img.source.url.replace(/&amp;/g, '&'));
+      addImage(img.source?.url);
     }
   }
+
+  // 3. Direct image URL (i.redd.it links, imgur direct links, etc.)
   if (postData.url_overridden_by_dest) {
     const u = postData.url_overridden_by_dest;
-    if (u.match(/\.(jpg|jpeg|png|gif|webp)(\?|$)/i) && !images.includes(u)) images.push(u);
+    if (isImageUrl(u)) addImage(u);
+    // i.redd.it URLs without extension
+    if (u.includes('i.redd.it') && !seen.has(u)) addImage(u);
   }
+
+  // 4. The post's own url field (sometimes it IS the image)
+  if (postData.url && isImageUrl(postData.url)) {
+    addImage(postData.url);
+  }
+  if (postData.url?.includes('i.redd.it')) {
+    addImage(postData.url);
+  }
+
+  // 5. Video thumbnail — for reddit-hosted videos, grab the scrubber image
+  if (postData.is_video) {
+    const video = postData.media?.reddit_video || postData.secure_media?.reddit_video;
+    if (video?.scrubber_media_url) addImage(video.scrubber_media_url);
+  }
+
+  // 6. Thumbnail as absolute last resort (skip "self", "default", "nsfw", "spoiler", empty)
+  if (images.length === 0 && postData.thumbnail) {
+    const t = postData.thumbnail;
+    if (t.startsWith('http') && !['self', 'default', 'nsfw', 'spoiler', 'image'].includes(t)) {
+      addImage(t);
+    }
+  }
+
+  // 7. Crosspost parent images
+  if (images.length === 0 && postData.crosspost_parent_list?.length) {
+    const parentImages = extractRedditImages(postData.crosspost_parent_list[0]);
+    for (const img of parentImages) addImage(img);
+  }
+
+  // 8. Extract inline images from selftext_html (e.g., user-embedded images)
+  if (postData.selftext_html) {
+    const imgRegex = /https?:\/\/(?:preview\.redd\.it|i\.redd\.it|i\.imgur\.com)[^\s"'<>)]+/g;
+    let match;
+    while ((match = imgRegex.exec(postData.selftext_html)) !== null) {
+      addImage(match[0]);
+    }
+  }
+
+  console.log(`[Reddit] extractRedditImages found ${images.length} images. ` +
+    `has_gallery=${!!postData.is_gallery}, has_media_metadata=${!!postData.media_metadata}, ` +
+    `has_preview=${!!postData.preview?.images?.length}, ` +
+    `url_dest=${postData.url_overridden_by_dest || 'none'}, ` +
+    `thumbnail=${postData.thumbnail || 'none'}, ` +
+    `is_video=${!!postData.is_video}, post_hint=${postData.post_hint || 'none'}`);
+
   return images;
 }
 
@@ -143,7 +249,16 @@ async function fetchRedditViaSearch(url: string): Promise<RedditJsonResult> {
       }
 
       const postData: RedditPost = children[0].data;
-      console.log(`[Reddit] Got post via ${searchUrl.split('?')[0]}`);
+      console.log(`[Reddit] Got post via ${searchUrl.split('?')[0]}. Fields: ` +
+        `title="${postData.title?.slice(0, 50)}", ` +
+        `is_gallery=${postData.is_gallery}, ` +
+        `media_metadata_keys=${postData.media_metadata ? Object.keys(postData.media_metadata).length : 0}, ` +
+        `preview_images=${postData.preview?.images?.length || 0}, ` +
+        `url_dest=${postData.url_overridden_by_dest?.slice(0, 80) || 'none'}, ` +
+        `thumbnail=${postData.thumbnail?.slice(0, 80) || 'none'}, ` +
+        `post_hint=${postData.post_hint || 'none'}, ` +
+        `is_video=${postData.is_video || false}, ` +
+        `crosspost_parents=${postData.crosspost_parent_list?.length || 0}`);
       return { postData, commentsData: [] };
     } catch (err) {
       console.warn(`[Reddit] Endpoint ${searchUrl.split('?')[0]} error:`, err instanceof Error ? err.message : err);
@@ -623,13 +738,10 @@ async function fetchReddit(url: string) {
 
   // Handle crosspost: if selftext is empty, check crosspost_parent_list
   let selftext = postData.selftext || '';
-  const crosspostList = (postData as unknown as Record<string, unknown>).crosspost_parent_list as Array<{ selftext?: string; title?: string; author?: string; subreddit?: string }> | undefined;
-  if (!selftext && crosspostList && crosspostList.length > 0) {
-    const parent = crosspostList[0];
+  if (!selftext && postData.crosspost_parent_list?.length) {
+    const parent = postData.crosspost_parent_list[0];
     if (parent.selftext) {
-      selftext = parent.selftext;
-      // Note the crosspost source
-      selftext = `[Crosspost from r/${parent.subreddit || 'unknown'} by u/${parent.author || 'unknown'}]\n\n${selftext}`;
+      selftext = `[Crosspost from r/${parent.subreddit || 'unknown'} by u/${parent.author || 'unknown'}]\n\n${parent.selftext}`;
     }
   }
 
