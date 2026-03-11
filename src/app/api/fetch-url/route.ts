@@ -416,87 +416,82 @@ async function fetchTwitter(url: string) {
     }
   }
 
-  // ── Strategy 4: Apify Twitter Scraper Unlimited (uses Twitter's internal APIs — can get article content) ──
+  // ── Strategy 4: Google Cache (free, static HTML, no login wall) ──
   if (!bestBody || bestBody.length < 100) {
-    const token = process.env.APIFY_TOKEN;
-    if (token) {
-      try {
-        const tweetUrl = `https://twitter.com/${username}/status/${statusId}`;
-        const scraperUrl = `https://api.apify.com/v2/acts/apidojo~twitter-scraper-lite/run-sync-get-dataset-items?token=${token}`;
-        const scraperResponse = await fetch(scraperUrl, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            startUrls: [{ url: tweetUrl }],
-            maxItems: 1,
-          }),
-        });
+    try {
+      const cacheUrl = `https://webcache.googleusercontent.com/search?q=cache:https://x.com/${username}/status/${statusId}`;
+      const cacheResponse = await fetch(cacheUrl, {
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+          'Accept': 'text/html',
+        },
+      });
 
-        if (scraperResponse.ok) {
-          const scraperData = await scraperResponse.json();
-          console.log('Twitter Scraper Unlimited response:', JSON.stringify(scraperData?.[0] ? Object.keys(scraperData[0]) : 'empty', null, 2));
-          if (scraperData && scraperData.length > 0) {
-            const result = scraperData[0];
-            
-            // Check multiple fields where article content might live
-            let articleText = '';
-            
-            // Log all text-like fields for debugging
-            console.log('Scraper text fields:', {
-              text_len: result.text?.length || 0,
-              full_text_len: result.full_text?.length || 0,
-              note_tweet: !!result.note_tweet,
-              article: !!result.article,
-              richtext: !!result.richtext,
-              card: !!result.card,
-              has_data: !!result.data,
-            });
-            
-            // note_tweet contains long-form content
-            if (result.note_tweet?.text) {
-              articleText = result.note_tweet.text;
-            }
-            // Some scrapers return it in full_text
-            if (!articleText && result.full_text && result.full_text.length > 100) {
-              articleText = result.full_text;
-            }
-            // Or just text
-            if (!articleText && result.text && result.text.length > 100) {
-              articleText = result.text;
-            }
-            // Check for article-specific fields
-            if (!articleText && result.article?.text) {
-              articleText = result.article.text;
-            }
-            // richtext or content field
-            if (!articleText && result.richtext) {
-              articleText = typeof result.richtext === 'string' ? result.richtext : JSON.stringify(result.richtext);
-            }
-            // card content
-            if (!articleText && result.card?.legacy?.binding_values) {
-              const vals = result.card.legacy.binding_values;
-              const cardBody = vals.find?.((v: { key: string }) => v.key === 'body')?.value?.string_value;
-              if (cardBody) articleText = cardBody;
-            }
+      if (cacheResponse.ok) {
+        const html = await cacheResponse.text();
+        console.log('Google Cache response length:', html.length);
 
-            if (articleText && articleText.length > bestBody.length) {
-              bestBody = articleText;
-              source = 'scraper-unlimited';
-              isArticle = true;
-            }
+        // Extract article content from the cached HTML
+        // X articles have their content in specific div structures
+        // Strip HTML tags but preserve paragraph breaks
+        let articleContent = '';
 
-            // Also grab images and metadata if better
-            if (result.media?.length) {
-              const newImages = result.media
-                .filter((m: { media_url_https?: string }) => m.media_url_https)
-                .map((m: { media_url_https: string }) => m.media_url_https);
-              if (newImages.length > images.length) images = newImages;
+        // Try to find article body content between common markers
+        const articleMatch = html.match(/data-testid="tweetText"[^>]*>([\s\S]*?)<\/div>/gi);
+        if (articleMatch) {
+          articleContent = articleMatch
+            .map((m: string) => m.replace(/<[^>]*>/g, '').trim())
+            .filter((t: string) => t.length > 0)
+            .join('\n\n');
+        }
+
+        // Fallback: extract all meaningful text between <p> and <span> tags
+        if (!articleContent || articleContent.length < 100) {
+          const textBlocks = html.match(/<(?:p|span|div)[^>]*class="[^"]*css-[^"]*"[^>]*>([\s\S]*?)<\/(?:p|span|div)>/gi);
+          if (textBlocks) {
+            const cleaned = textBlocks
+              .map((b: string) => b.replace(/<[^>]*>/g, '').trim())
+              .filter((t: string) => t.length > 30) // Only meaningful paragraphs
+              .join('\n\n');
+            if (cleaned.length > articleContent.length) {
+              articleContent = cleaned;
             }
           }
         }
-      } catch (e) {
-        console.error('Twitter Scraper Unlimited failed:', e);
+
+        // Last fallback: just strip all HTML and look for long text blocks
+        if (!articleContent || articleContent.length < 100) {
+          const stripped = html
+            .replace(/<script[\s\S]*?<\/script>/gi, '')
+            .replace(/<style[\s\S]*?<\/style>/gi, '')
+            .replace(/<[^>]*>/g, '\n')
+            .replace(/&nbsp;/g, ' ')
+            .replace(/&amp;/g, '&')
+            .replace(/&lt;/g, '<')
+            .replace(/&gt;/g, '>')
+            .replace(/&quot;/g, '"')
+            .replace(/&#39;/g, "'")
+            .replace(/\n{3,}/g, '\n\n')
+            .trim();
+
+          // Find the longest continuous block of text (likely the article)
+          const blocks = stripped.split(/\n\n+/);
+          const longBlocks = blocks.filter((b: string) => b.trim().length > 50);
+          if (longBlocks.length > 3) {
+            articleContent = longBlocks.join('\n\n');
+          }
+        }
+
+        if (articleContent && articleContent.length > bestBody.length && articleContent.length > 200) {
+          bestBody = articleContent;
+          source = 'google-cache';
+          isArticle = true;
+        }
+      } else {
+        console.log('Google Cache returned:', cacheResponse.status);
       }
+    } catch (e) {
+      console.error('Google Cache failed:', e);
     }
   }
 
