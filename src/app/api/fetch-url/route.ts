@@ -747,7 +747,22 @@ async function fetchReddit(url: string) {
 
   const comments = extractRedditComments(commentsData);
   const commentText = comments.length > 0 ? '\n\n---\n\nTop Comments:\n\n' + comments.slice(0, 20).join('\n\n') : '';
-  const images = extractRedditImages(postData);
+  let images = extractRedditImages(postData);
+
+  // Fallback: if search API returned post data but no images were extracted,
+  // try getting images from RSS feed as a backup
+  if (images.length === 0 && extractionMethod === 'search.reddit.com') {
+    console.log(`[Reddit] Search API returned no images — trying RSS fallback for images`);
+    try {
+      const rssResult = await fetchRedditRss(url);
+      if (rssResult.images.length > 0) {
+        images = rssResult.images;
+        console.log(`[Reddit] RSS fallback found ${images.length} images`);
+      }
+    } catch (rssErr) {
+      console.warn(`[Reddit] RSS image fallback failed:`, rssErr instanceof Error ? rssErr.message : rssErr);
+    }
+  }
 
   // Debug: log raw image-related fields so we can diagnose extraction issues
   console.log(`[Reddit] Final result: ${images.length} images, title="${postData.title?.slice(0, 60)}"`);
