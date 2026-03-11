@@ -224,6 +224,70 @@ export async function updateCapture(id: string, updates: Partial<Capture>): Prom
   });
 }
 
+// Build engagement string for a capture based on platform metadata
+function formatEngagement(c: Capture): string {
+  const m = c.metadata;
+  if (!m) return '';
+
+  if (c.platform === 'twitter') {
+    const parts = [
+      m.likes != null ? `likes: ${m.likes}` : null,
+      m.retweets != null ? `retweets: ${m.retweets}` : null,
+      m.views != null ? `views: ${m.views}` : null,
+    ].filter(Boolean);
+    return parts.join(', ');
+  }
+
+  if (c.platform === 'reddit') {
+    const parts = [
+      m.score != null ? `upvotes: ${m.score}` : null,
+      m.numComments != null ? `comments: ${m.numComments}` : null,
+      m.subreddit ? `subreddit: r/${m.subreddit}` : null,
+    ].filter(Boolean);
+    return parts.join(', ');
+  }
+
+  if (c.platform === 'github') {
+    const parts = [
+      m.stars != null ? `stars: ${m.stars}` : null,
+      m.forks != null ? `forks: ${m.forks}` : null,
+      m.language ? `language: ${m.language}` : null,
+    ].filter(Boolean);
+    return parts.join(', ');
+  }
+
+  return '';
+}
+
+// Auto-detect content type from capture metadata and content
+function detectContentType(c: Capture): string {
+  if (c.platform === 'github') {
+    if (c.metadata?.isFile) return 'source_file';
+    return 'repository';
+  }
+  if (c.platform === 'twitter') {
+    if (c.metadata?.isArticle) return 'long_form_article';
+    if (c.images && c.images.length > 0) return 'media_post';
+    return 'post';
+  }
+  if (c.platform === 'reddit') {
+    if (c.body && c.body.length > 500) return 'discussion';
+    if (c.images && c.images.length > 0) return 'media_post';
+    return 'post';
+  }
+  if (c.platform === 'article') return 'article';
+  return 'other';
+}
+
+// Platform display labels for export
+const PLATFORM_DISPLAY: Record<string, string> = {
+  twitter: 'X (Twitter)',
+  reddit: 'Reddit',
+  github: 'GitHub',
+  article: 'Article',
+  other: 'Other',
+};
+
 // Export captures as structured markdown for Claude
 export async function exportProjectAsMarkdown(projectId: string, filterPlatform?: Platform | 'all'): Promise<string> {
   const project = await getProject(projectId);
@@ -234,39 +298,30 @@ export async function exportProjectAsMarkdown(projectId: string, filterPlatform?
     captures = captures.filter(c => c.platform === filterPlatform);
   }
 
-  const filterLabel = filterPlatform && filterPlatform !== 'all' ? ` (${filterPlatform})` : '';
-  let md = `# ${project.name}${filterLabel}\n\nExported: ${new Date().toISOString().split('T')[0]}\nCaptures: ${captures.length}\n\n`;
+  const filterLabel = filterPlatform && filterPlatform !== 'all' ? ` [filtered: ${PLATFORM_DISPLAY[filterPlatform] || filterPlatform}]` : '';
+  let md = `# ${project.name}${filterLabel}\n\n`;
 
   if (project.brief) {
     md += `## Project Brief\n\n${project.brief}\n\n`;
   }
 
+  md += `---\n\n`;
 
   for (const c of captures) {
-    // YAML-style header block for structured parsing
+    // Structured YAML-style metadata block
     md += `---\n`;
-    md += `source: ${c.platform}\n`;
+    md += `source: ${PLATFORM_DISPLAY[c.platform] || c.platform}\n`;
     md += `author: ${c.author}\n`;
     md += `date: ${new Date(c.createdAt).toISOString().split('T')[0]}\n`;
+    const engagement = formatEngagement(c);
+    if (engagement) md += `engagement: ${engagement}\n`;
+    md += `content_type: ${detectContentType(c)}\n`;
     md += `url: ${c.url}\n`;
     if (c.note) md += `context_for_claude: ${c.note}\n`;
     md += `---\n\n`;
 
+    // Title + body
     md += `## ${c.title}\n\n`;
-
-    if (c.metadata && c.platform === 'reddit') {
-      md += `r/${c.metadata.subreddit} · ↑${c.metadata.score} · ${c.metadata.numComments} comments\n\n`;
-    }
-
-    if (c.metadata && c.platform === 'twitter') {
-      const m = c.metadata;
-      const stats = [
-        m.likes ? `♥${m.likes}` : null,
-        m.retweets ? `⟲${m.retweets}` : null,
-        m.views ? `👁${m.views}` : null,
-      ].filter(Boolean).join(' · ');
-      if (stats) md += `${stats}\n\n`;
-    }
 
     // Strip [image:URL] markers from body for clean text export
     const cleanBody = c.body.replace(/\[image:[^\]]+\]\n?\n?/g, '');
@@ -279,6 +334,24 @@ export async function exportProjectAsMarkdown(projectId: string, filterPlatform?
       }
       md += `\n`;
     }
+  }
+
+  // Collection summary
+  if (captures.length > 0) {
+    const platforms = [...new Set(captures.map(c => PLATFORM_DISPLAY[c.platform] || c.platform))];
+    const dates = captures.map(c => c.createdAt).sort();
+    const oldest = new Date(dates[0]).toISOString().split('T')[0];
+    const newest = new Date(dates[dates.length - 1]).toISOString().split('T')[0];
+    const dateRange = oldest === newest ? oldest : `${oldest} to ${newest}`;
+    const withContext = captures.filter(c => c.note).length;
+
+    md += `---\n\n`;
+    md += `## Collection Summary\n\n`;
+    md += `- Total captures: ${captures.length}\n`;
+    md += `- Platforms: ${platforms.join(', ')}\n`;
+    md += `- Date range: ${dateRange}\n`;
+    md += `- Captures with context: ${withContext}/${captures.length}\n`;
+    md += `- Exported: ${new Date().toISOString().split('T')[0]}\n`;
   }
 
   return md;
