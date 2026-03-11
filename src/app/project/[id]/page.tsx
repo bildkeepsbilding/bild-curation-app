@@ -14,6 +14,7 @@ import {
   type Capture,
   type Platform,
 } from '@/lib/db';
+import { exportProjectAsPdf } from '@/lib/pdf-export';
 
 const PLATFORMS: { key: Platform | 'all'; label: string; color: string }[] = [
   { key: 'all', label: 'All', color: '#f0f0f0' },
@@ -49,6 +50,8 @@ export default function ProjectPage() {
   const [activeFilter, setActiveFilter] = useState<Platform | 'all'>('all');
   const [editingBrief, setEditingBrief] = useState(false);
   const [briefText, setBriefText] = useState('');
+  const [exporting, setExporting] = useState(false);
+  const [exportStatus, setExportStatus] = useState('');
   const urlInputRef = useRef<HTMLInputElement>(null);
   const noteInputRef = useRef<HTMLTextAreaElement>(null);
   const briefInputRef = useRef<HTMLTextAreaElement>(null);
@@ -106,14 +109,25 @@ export default function ProjectPage() {
   }
 
   async function handleExport() {
-    const md = await exportProjectAsMarkdown(projectId, activeFilter);
-    const blob = new Blob([md], { type: 'text/markdown' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `${project?.name || 'project'}.md`;
-    a.click();
-    URL.revokeObjectURL(url);
+    if (!project) return;
+    setExporting(true);
+    setExportStatus('Preparing...');
+    try {
+      const blob = await exportProjectAsPdf(project, captures, activeFilter, (stage, detail) => {
+        setExportStatus(detail ? `${stage} ${detail}` : stage);
+      });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${project.name || 'project'}.pdf`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      console.error('PDF export failed:', e);
+    } finally {
+      setExporting(false);
+      setExportStatus('');
+    }
   }
 
   async function handleCopyForClaude() {
@@ -440,9 +454,13 @@ export default function ProjectPage() {
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none"><rect x="9" y="9" width="13" height="13" rx="2" stroke="currentColor" strokeWidth="1.5"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1" stroke="currentColor" strokeWidth="1.5"/></svg>
                 {copied ? 'Copied!' : 'Copy for Claude'}
               </button>
-              <button onClick={handleExport} className="flex items-center gap-1.5 px-3 py-2 rounded-full text-xs font-medium" style={{ border: '1px solid var(--border)', color: 'var(--text-secondary)' }}>
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none"><path d="M12 4v12m0 0l-4-4m4 4l4-4M4 18h16" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" /></svg>
-                Export .md
+              <button onClick={handleExport} disabled={exporting} className="flex items-center gap-1.5 px-3 py-2 rounded-full text-xs font-medium transition-all" style={{ border: '1px solid var(--border)', color: 'var(--text-secondary)', opacity: exporting ? 0.6 : 1 }}>
+                {exporting ? (
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" className="animate-spin"><circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="2" opacity="0.25"/><path d="M12 2a10 10 0 019.75 7.75" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/></svg>
+                ) : (
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none"><path d="M12 4v12m0 0l-4-4m4 4l4-4M4 18h16" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" /></svg>
+                )}
+                {exporting ? exportStatus || 'Generating...' : 'Export PDF'}
               </button>
             </div>
           )}
