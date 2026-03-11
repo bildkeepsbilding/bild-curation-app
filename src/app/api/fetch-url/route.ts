@@ -71,21 +71,131 @@ function extractRedditComments(
   return comments;
 }
 
-async function fetchReddit(url: string) {
+const BROWSER_UA = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36';
+
+async function fetchRedditJson(url: string, attempt = 0): Promise<{ postData: RedditPost; commentsData: Array<{ kind: string; data: RedditComment & { replies?: { data?: { children?: Array<{ kind: string; data: RedditComment }> } } } }> }> {
   let cleanUrl = url.split('?')[0];
   if (cleanUrl.endsWith('/')) cleanUrl = cleanUrl.slice(0, -1);
   if (!cleanUrl.endsWith('.json')) cleanUrl += '.json';
 
   const response = await fetch(cleanUrl, {
-    headers: { 'User-Agent': 'BildCurationApp/1.0' },
+    headers: {
+      'User-Agent': BROWSER_UA,
+      'Accept': 'application/json',
+    },
   });
-  if (!response.ok) throw new Error(`Reddit returned ${response.status}`);
+
+  // Retry once on rate limit (429) with 1s delay
+  if (response.status === 429 && attempt < 1) {
+    await new Promise(r => setTimeout(r, 1000));
+    return fetchRedditJson(url, attempt + 1);
+  }
+
+  if (!response.ok) throw new Error(`Reddit JSON returned ${response.status}`);
 
   const data = await response.json();
-  if (!Array.isArray(data) || data.length < 1) throw new Error('Unexpected Reddit response');
+  if (!Array.isArray(data) || data.length < 1) throw new Error('Unexpected Reddit JSON response');
 
   const postData: RedditPost = data[0].data.children[0].data;
   const commentsData = data.length > 1 ? data[1].data.children : [];
+  return { postData, commentsData };
+}
+
+// Fallback: scrape old.reddit.com HTML (more scraper-friendly than new reddit)
+async function fetchRedditOldHtml(url: string): Promise<{ title: string; selftext: string; author: string; subreddit: string }> {
+  // Convert any reddit URL to old.reddit.com
+  const oldUrl = url.replace(/(?:www\.)?reddit\.com/, 'old.reddit.com').split('?')[0];
+
+  const response = await fetch(oldUrl, {
+    headers: {
+      'User-Agent': BROWSER_UA,
+      'Accept': 'text/html',
+    },
+    redirect: 'follow',
+  });
+
+  if (!response.ok) throw new Error(`old.reddit.com returned ${response.status}`);
+  const html = await response.text();
+
+  // Extract title
+  const titleMatch = html.match(/<a[^>]*class="[^"]*title[^"]*"[^>]*>([^<]+)<\/a>/i)
+    || html.match(/<title>([^<]+)<\/title>/i);
+  const title = (titleMatch?.[1] || 'Untitled').replace(/\s*:\s*\w+$/, '').trim();
+
+  // Extract selftext from .usertext-body
+  const selftextMatch = html.match(/<div[^>]*class="[^"]*usertext-body[^"]*"[^>]*>([\s\S]*?)<\/div>\s*<\/div>/i)
+    || html.match(/<div[^>]*class="[^"]*md[^"]*"[^>]*>([\s\S]*?)<\/div>/i);
+  let selftext = '';
+  if (selftextMatch) {
+    selftext = selftextMatch[1]
+      .replace(/<\/(?:p|div|h[1-6]|li|blockquote|br|tr)>/gi, '\n\n')
+      .replace(/<br\s*\/?>/gi, '\n')
+      .replace(/<[^>]*>/g, '')
+      .replace(/&nbsp;/g, ' ')
+      .replace(/&amp;/g, '&')
+      .replace(/&lt;/g, '<')
+      .replace(/&gt;/g, '>')
+      .replace(/&quot;/g, '"')
+      .replace(/&#39;/g, "'")
+      .replace(/\n{3,}/g, '\n\n')
+      .trim();
+  }
+
+  // Extract author
+  const authorMatch = html.match(/class="[^"]*author[^"]*"[^>]*>([^<]+)<\/a>/i);
+  const author = authorMatch?.[1] || 'unknown';
+
+  // Extract subreddit
+  const subMatch = html.match(/\/r\/(\w+)/);
+  const subreddit = subMatch?.[1] || 'unknown';
+
+  return { title, selftext, author, subreddit };
+}
+
+async function fetchReddit(url: string) {
+  let postData: RedditPost;
+  let commentsData: Array<{ kind: string; data: RedditComment & { replies?: { data?: { children?: Array<{ kind: string; data: RedditComment }> } } } }> = [];
+  let usedFallback = false;
+
+  try {
+    const result = await fetchRedditJson(url);
+    postData = result.postData;
+    commentsData = result.commentsData;
+  } catch (jsonError) {
+    // Fallback: try old.reddit.com HTML scraping
+    console.warn('Reddit JSON API failed, trying old.reddit.com fallback:', jsonError);
+    try {
+      const htmlResult = await fetchRedditOldHtml(url);
+      usedFallback = true;
+      postData = {
+        title: htmlResult.title,
+        selftext: htmlResult.selftext,
+        author: htmlResult.author,
+        subreddit: htmlResult.subreddit,
+        score: 0,
+        num_comments: 0,
+        url: url,
+        created_utc: 0,
+        permalink: new URL(url).pathname,
+      };
+    } catch (htmlError) {
+      console.error('old.reddit.com fallback also failed:', htmlError);
+      throw new Error(`Reddit extraction failed: JSON API (${jsonError instanceof Error ? jsonError.message : 'unknown'}) and HTML fallback (${htmlError instanceof Error ? htmlError.message : 'unknown'})`);
+    }
+  }
+
+  // Handle crosspost: if selftext is empty, check crosspost_parent_list
+  let selftext = postData.selftext || '';
+  const crosspostList = (postData as Record<string, unknown>).crosspost_parent_list as Array<{ selftext?: string; title?: string; author?: string; subreddit?: string }> | undefined;
+  if (!selftext && crosspostList && crosspostList.length > 0) {
+    const parent = crosspostList[0];
+    if (parent.selftext) {
+      selftext = parent.selftext;
+      // Note the crosspost source
+      selftext = `[Crosspost from r/${parent.subreddit || 'unknown'} by u/${parent.author || 'unknown'}]\n\n${selftext}`;
+    }
+  }
+
   const comments = extractRedditComments(commentsData);
   const commentText = comments.length > 0 ? '\n\n---\n\nTop Comments:\n\n' + comments.slice(0, 20).join('\n\n') : '';
   const images = extractRedditImages(postData);
@@ -93,7 +203,7 @@ async function fetchReddit(url: string) {
   return {
     platform: 'reddit',
     title: postData.title,
-    body: (postData.selftext || '(Link post)') + commentText,
+    body: (selftext || '(Link post)') + commentText,
     author: `u/${postData.author}`,
     images,
     metadata: {
@@ -103,6 +213,7 @@ async function fetchReddit(url: string) {
       flair: postData.link_flair_text || null,
       permalink: `https://reddit.com${postData.permalink}`,
       createdUtc: postData.created_utc,
+      ...(usedFallback ? { source: 'old.reddit.com-fallback' } : {}),
     },
   };
 }
@@ -503,42 +614,163 @@ async function fetchTwitter(url: string) {
 
 // ── GitHub ──
 
+const GH_HEADERS = {
+  'User-Agent': BROWSER_UA,
+  'Accept': 'application/vnd.github.v3+json',
+};
+
+// Parse GitHub URL — handles repo root, blob (file), and tree (directory) URLs
+function parseGitHubUrl(url: string): { owner: string; repo: string; filePath?: string; ref?: string } {
+  // Match: github.com/owner/repo/blob/ref/path/to/file
+  const fileMatch = url.match(/github\.com\/([^\/]+)\/([^\/]+)\/blob\/([^\/]+)\/(.+)/);
+  if (fileMatch) {
+    return {
+      owner: fileMatch[1],
+      repo: fileMatch[2].replace(/\.git$/, ''),
+      ref: fileMatch[3],
+      filePath: fileMatch[4].split('#')[0].split('?')[0],
+    };
+  }
+
+  // Match: github.com/owner/repo (with optional trailing segments)
+  const repoMatch = url.match(/github\.com\/([^\/]+)\/([^\/]+)/);
+  if (!repoMatch) throw new Error('Invalid GitHub URL');
+
+  return {
+    owner: repoMatch[1],
+    repo: repoMatch[2].replace(/\.git$/, '').split('/')[0].split('#')[0].split('?')[0],
+  };
+}
+
+// Fetch a specific file's content from a GitHub repo
+async function fetchGitHubFile(owner: string, repo: string, filePath: string, ref?: string) {
+  const apiUrl = `https://api.github.com/repos/${owner}/${repo}/contents/${filePath}${ref ? `?ref=${ref}` : ''}`;
+  const response = await fetch(apiUrl, { headers: GH_HEADERS });
+  if (!response.ok) throw new Error(`GitHub file returned ${response.status}`);
+  const data = await response.json();
+
+  let content = '';
+  if (data.content && data.encoding === 'base64') {
+    content = Buffer.from(data.content, 'base64').toString('utf-8');
+    // If truncated (size > actual decoded length), fetch raw
+    if (data.size && content.length < data.size * 0.9) {
+      const rawResponse = await fetch(data.download_url, { headers: { 'User-Agent': BROWSER_UA } });
+      if (rawResponse.ok) content = await rawResponse.text();
+    }
+  } else if (data.download_url) {
+    const rawResponse = await fetch(data.download_url, { headers: { 'User-Agent': BROWSER_UA } });
+    if (rawResponse.ok) content = await rawResponse.text();
+  }
+
+  return { content, name: data.name, path: data.path, size: data.size, htmlUrl: data.html_url };
+}
+
 async function fetchGitHub(url: string) {
-  // Parse GitHub URL to extract owner/repo
-  const match = url.match(/github\.com\/([^\/]+)\/([^\/]+)/);
-  if (!match) throw new Error('Invalid GitHub URL');
+  const parsed = parseGitHubUrl(url);
+  const { owner, repo } = parsed;
 
-  const owner = match[1];
-  const repo = match[2].replace(/\.git$/, '').split('/')[0].split('#')[0].split('?')[0];
+  // If URL points to a specific file, extract that file instead of README
+  if (parsed.filePath) {
+    const file = await fetchGitHubFile(owner, repo, parsed.filePath, parsed.ref);
 
-  // Fetch repo info
-  const repoResponse = await fetch(`https://api.github.com/repos/${owner}/${repo}`, {
-    headers: {
-      'User-Agent': 'BildCurationApp/1.0',
-      'Accept': 'application/vnd.github.v3+json',
-    },
-  });
+    // Also fetch repo info for context
+    const repoResponse = await fetch(`https://api.github.com/repos/${owner}/${repo}`, { headers: GH_HEADERS });
+    const repoData = repoResponse.ok ? await repoResponse.json() : null;
+
+    const body = [
+      repoData?.description ? `Repository: ${repoData.description}` : '',
+      '',
+      `File: ${file.path} (${file.size ? (file.size / 1024).toFixed(1) + ' KB' : 'unknown size'})`,
+      '',
+      '---',
+      '',
+      file.content,
+    ].filter(s => s !== undefined).join('\n');
+
+    return {
+      platform: 'github',
+      title: `${owner}/${repo} — ${file.name}`,
+      body,
+      author: owner,
+      images: repoData?.owner?.avatar_url ? [repoData.owner.avatar_url] : [],
+      metadata: {
+        stars: repoData?.stargazers_count || 0,
+        forks: repoData?.forks_count || 0,
+        issues: repoData?.open_issues_count || 0,
+        language: repoData?.language || null,
+        topics: repoData?.topics || [],
+        createdAt: repoData?.created_at || null,
+        updatedAt: repoData?.updated_at || null,
+        homepage: repoData?.homepage || null,
+        filePath: file.path,
+      },
+    };
+  }
+
+  // Fetch repo info, README, file tree, and languages in parallel
+  const [repoResponse, readmeResult, treeResult, langResult] = await Promise.all([
+    fetch(`https://api.github.com/repos/${owner}/${repo}`, { headers: GH_HEADERS }),
+    // README
+    (async () => {
+      try {
+        const resp = await fetch(`https://api.github.com/repos/${owner}/${repo}/readme`, { headers: GH_HEADERS });
+        if (!resp.ok) return '';
+        const data = await resp.json();
+        if (data.content && data.encoding === 'base64') {
+          let content = Buffer.from(data.content, 'base64').toString('utf-8');
+          // If content appears truncated, fetch via raw URL
+          if (data.download_url && data.size && content.length < data.size * 0.9) {
+            const rawResp = await fetch(data.download_url, { headers: { 'User-Agent': BROWSER_UA } });
+            if (rawResp.ok) content = await rawResp.text();
+          }
+          return content;
+        }
+        if (data.download_url) {
+          const rawResp = await fetch(data.download_url, { headers: { 'User-Agent': BROWSER_UA } });
+          if (rawResp.ok) return await rawResp.text();
+        }
+        return '';
+      } catch { return ''; }
+    })(),
+    // File tree
+    (async () => {
+      try {
+        const defaultBranch = 'HEAD';
+        const resp = await fetch(`https://api.github.com/repos/${owner}/${repo}/git/trees/${defaultBranch}?recursive=1`, { headers: GH_HEADERS });
+        if (!resp.ok) return '';
+        const data = await resp.json();
+        if (!data.tree || !Array.isArray(data.tree)) return '';
+        // Build compact tree listing, limit to 200 entries to keep it manageable
+        const entries = data.tree
+          .filter((e: { type: string }) => e.type === 'blob' || e.type === 'tree')
+          .slice(0, 200)
+          .map((e: { path: string; type: string }) => `${e.type === 'tree' ? '📁' : '  '} ${e.path}`);
+        if (data.truncated) entries.push(`  ... (tree truncated, ${data.tree.length}+ files)`);
+        return entries.join('\n');
+      } catch { return ''; }
+    })(),
+    // Languages
+    (async () => {
+      try {
+        const resp = await fetch(`https://api.github.com/repos/${owner}/${repo}/languages`, { headers: GH_HEADERS });
+        if (!resp.ok) return {};
+        return await resp.json();
+      } catch { return {}; }
+    })(),
+  ]);
 
   if (!repoResponse.ok) throw new Error(`GitHub returned ${repoResponse.status}`);
   const repoData = await repoResponse.json();
 
-  // Fetch README
-  let readmeContent = '';
-  try {
-    const readmeResponse = await fetch(`https://api.github.com/repos/${owner}/${repo}/readme`, {
-      headers: {
-        'User-Agent': 'BildCurationApp/1.0',
-        'Accept': 'application/vnd.github.v3+json',
-      },
-    });
-    if (readmeResponse.ok) {
-      const readmeData = await readmeResponse.json();
-      if (readmeData.content) {
-        readmeContent = Buffer.from(readmeData.content, 'base64').toString('utf-8');
-      }
-    }
-  } catch {
-    // README not found, that's fine
+  // Format language breakdown as percentages
+  const langEntries = Object.entries(langResult as Record<string, number>);
+  let langBreakdown = '';
+  if (langEntries.length > 0) {
+    const totalBytes = langEntries.reduce((sum, [, bytes]) => sum + bytes, 0);
+    langBreakdown = langEntries
+      .sort(([, a], [, b]) => b - a)
+      .map(([lang, bytes]) => `${lang}: ${((bytes / totalBytes) * 100).toFixed(1)}%`)
+      .join(', ');
   }
 
   const body = [
@@ -546,9 +778,12 @@ async function fetchGitHub(url: string) {
     '',
     `Stars: ${repoData.stargazers_count} · Forks: ${repoData.forks_count} · Issues: ${repoData.open_issues_count}`,
     `Language: ${repoData.language || 'Unknown'}`,
+    langBreakdown ? `Languages: ${langBreakdown}` : '',
     repoData.topics?.length ? `Topics: ${repoData.topics.join(', ')}` : '',
     '',
-    readmeContent ? '---\n\nREADME:\n\n' + readmeContent : '',
+    treeResult ? '---\n\nProject Structure:\n\n' + treeResult : '',
+    '',
+    readmeResult ? '---\n\nREADME:\n\n' + readmeResult : '',
   ].filter(Boolean).join('\n');
 
   return {
@@ -562,6 +797,7 @@ async function fetchGitHub(url: string) {
       forks: repoData.forks_count,
       issues: repoData.open_issues_count,
       language: repoData.language,
+      languages: langResult || {},
       topics: repoData.topics || [],
       createdAt: repoData.created_at,
       updatedAt: repoData.updated_at,
