@@ -206,10 +206,23 @@ export default function ProjectPage() {
 
             {/* Twitter metadata */}
             {viewing.metadata && viewing.platform === 'twitter' && (
-              <div className="flex items-center gap-3 mb-4 text-xs" style={{ color: 'var(--text-tertiary)' }}>
-                {viewing.metadata.likes != null ? <span>Likes: {String(viewing.metadata.likes)}</span> : null}
-                {viewing.metadata.retweets != null ? <span>RTs: {String(viewing.metadata.retweets)}</span> : null}
-                {viewing.metadata.replies != null ? <span>Replies: {String(viewing.metadata.replies)}</span> : null}
+              <div className="space-y-2 mb-4">
+                {Boolean(viewing.metadata.isArticle) && (
+                  <span className="inline-block px-2 py-0.5 rounded text-[10px] font-semibold" style={{ background: '#8B5CF620', color: '#8B5CF6' }}>
+                    X Article
+                  </span>
+                )}
+                <div className="flex items-center gap-3 text-xs" style={{ color: 'var(--text-tertiary)' }}>
+                  {viewing.metadata.likes != null ? <span>❤️ {String(viewing.metadata.likes)}</span> : null}
+                  {viewing.metadata.retweets != null ? <span>🔁 {String(viewing.metadata.retweets)}</span> : null}
+                  {viewing.metadata.replies != null ? <span>💬 {String(viewing.metadata.replies)}</span> : null}
+                  {viewing.metadata.views != null ? <span>👁 {String(viewing.metadata.views)}</span> : null}
+                </div>
+                {Boolean(viewing.metadata.source) && (
+                  <span className="text-[10px] font-mono" style={{ color: 'var(--text-tertiary)', opacity: 0.5 }}>
+                    via {String(viewing.metadata.source)}
+                  </span>
+                )}
               </div>
             )}
 

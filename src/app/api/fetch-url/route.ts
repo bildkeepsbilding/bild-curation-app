@@ -104,106 +104,352 @@ async function fetchReddit(url: string) {
   };
 }
 
-// ── Twitter via Apify ──
+// ── Twitter / X — Multi-strategy extraction ──
 
-async function fetchTwitter(url: string) {
-  const token = process.env.APIFY_TOKEN;
-  if (!token) throw new Error('Apify token not configured. Add APIFY_TOKEN to .env.local');
+function parseTwitterUrl(url: string): { username: string; statusId: string } {
+  const match = url.match(/(?:twitter\.com|x\.com)\/([^\/]+)\/status\/(\d+)/);
+  if (!match) throw new Error('Invalid Twitter/X URL');
+  return { username: match[1], statusId: match[2] };
+}
 
-  // Use the free-friendly tweet scraper
-  const actorId = 'apidojo~tweet-scraper';
-  const apiUrl = `https://api.apify.com/v2/acts/${actorId}/run-sync-get-dataset-items?token=${token}`;
+// Strategy 1: FxTwitter API (free, no auth, handles regular + note tweets)
+async function fetchViaFxTwitter(username: string, statusId: string): Promise<{
+  text: string;
+  author: string;
+  images: string[];
+  likes: number;
+  retweets: number;
+  replies: number;
+  views: number;
+  date: string | null;
+  isNoteTweet: boolean;
+  isArticle: boolean;
+} | null> {
+  try {
+    const response = await fetch(`https://api.fxtwitter.com/${username}/status/${statusId}`, {
+      headers: { 'User-Agent': 'BildCurationApp/1.0' },
+    });
+    if (!response.ok) return null;
+    const data = await response.json();
+    const tweet = data?.tweet;
+    if (!tweet) return null;
 
-  // Extract tweet URLs - handle both twitter.com and x.com
-  const tweetUrl = url.replace('x.com', 'twitter.com');
-
-  const response = await fetch(apiUrl, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      startUrls: [{ url: tweetUrl }],
-      maxItems: 1,
-      addUserInfo: true,
-    }),
-  });
-
-  if (!response.ok) {
-    const errText = await response.text();
-    console.error('Apify error:', errText);
-    // Fallback to oEmbed
-    return fetchTwitterOEmbed(url);
-  }
-
-  const data = await response.json();
-
-  if (!data || data.length === 0) {
-    // Fallback to oEmbed
-    return fetchTwitterOEmbed(url);
-  }
-
-  const tweet = data[0];
-  const images: string[] = [];
-
-  // Extract media
-  if (tweet.media) {
-    for (const m of tweet.media) {
-      if (m.media_url_https) images.push(m.media_url_https);
-    }
-  }
-  if (tweet.photos) {
-    for (const p of tweet.photos) {
-      if (p.url) images.push(p.url);
-    }
-  }
-  if (tweet.extendedEntities?.media) {
-    for (const m of tweet.extendedEntities.media) {
-      if (m.media_url_https && !images.includes(m.media_url_https)) {
-        images.push(m.media_url_https);
+    const images: string[] = [];
+    if (tweet.media?.photos) {
+      for (const p of tweet.media.photos) {
+        if (p.url) images.push(p.url);
       }
     }
-  }
+    if (tweet.media?.videos) {
+      for (const v of tweet.media.videos) {
+        if (v.thumbnail_url) images.push(v.thumbnail_url);
+      }
+    }
 
-  return {
-    platform: 'twitter',
-    title: tweet.full_text?.slice(0, 100) || tweet.text?.slice(0, 100) || 'Tweet',
-    body: tweet.full_text || tweet.text || '',
-    author: `@${tweet.author?.userName || tweet.user?.screen_name || 'unknown'}`,
-    images,
-    metadata: {
+    const text = tweet.text || '';
+    // Detect if this is an article: FxTwitter returns very short/empty text for articles
+    // and the original URL typically contains /article/ or the tweet card type hints at it
+    const isArticle = (!text || text.length < 50) && (tweet.twitter_card === 'article' || tweet.twitter_card === 'summary_large_image');
+
+    return {
+      text,
+      author: tweet.author?.screen_name || username,
+      images,
+      likes: tweet.likes || 0,
+      retweets: tweet.retweets || 0,
+      replies: tweet.replies || 0,
+      views: tweet.views || 0,
+      date: tweet.created_at || null,
+      isNoteTweet: tweet.is_note_tweet || false,
+      isArticle,
+    };
+  } catch (e) {
+    console.error('FxTwitter failed:', e);
+    return null;
+  }
+}
+
+// Strategy 2: Twitter Syndication API (free, no auth, may include article/note content)
+async function fetchViaSyndication(statusId: string): Promise<{
+  text: string;
+  author: string;
+  authorHandle: string;
+  images: string[];
+  likes: number;
+  date: string | null;
+} | null> {
+  try {
+    const response = await fetch(
+      `https://cdn.syndication.twimg.com/tweet-result?id=${statusId}&lang=en&token=0`,
+      {
+        headers: {
+          'User-Agent': 'BildCurationApp/1.0',
+          'Accept': 'application/json',
+        },
+      }
+    );
+    if (!response.ok) return null;
+    const data = await response.json();
+    if (!data) return null;
+
+    const images: string[] = [];
+    // Syndication API nests media differently
+    if (data.mediaDetails) {
+      for (const m of data.mediaDetails) {
+        if (m.media_url_https) images.push(m.media_url_https);
+      }
+    }
+    if (data.photos) {
+      for (const p of data.photos) {
+        if (p.url) images.push(p.url);
+      }
+    }
+
+    // For note tweets, full text may be in data.note_tweet.text or data.text
+    let text = '';
+    if (data.note_tweet?.text) {
+      text = data.note_tweet.text;
+    } else if (data.text) {
+      text = data.text;
+    }
+
+    // For X Articles, check for article_content or richtext
+    if (data.article) {
+      const articleTitle = data.article.title || '';
+      const articleBody = data.article.text || data.article.content || '';
+      if (articleBody) {
+        text = articleTitle ? `${articleTitle}\n\n${articleBody}` : articleBody;
+      }
+    }
+
+    // Also check card data which might contain article info
+    if ((!text || text.length < 100) && data.card?.legacy?.binding_values) {
+      const cardValues = data.card.legacy.binding_values;
+      const cardTitle = cardValues.find((v: { key: string }) => v.key === 'title')?.value?.string_value;
+      const cardDesc = cardValues.find((v: { key: string }) => v.key === 'description')?.value?.string_value;
+      if (cardTitle || cardDesc) {
+        const cardText = [cardTitle, cardDesc].filter(Boolean).join('\n\n');
+        if (cardText.length > text.length) text = cardText;
+      }
+    }
+
+    return {
+      text,
+      author: data.user?.name || '',
+      authorHandle: data.user?.screen_name || '',
+      images,
+      likes: data.favorite_count || 0,
+      date: data.created_at || null,
+    };
+  } catch (e) {
+    console.error('Syndication API failed:', e);
+    return null;
+  }
+}
+
+// Strategy 3: Apify tweet scraper (costs credits, use as fallback)
+async function fetchViaApify(url: string): Promise<{
+  text: string;
+  author: string;
+  images: string[];
+  likes: number;
+  retweets: number;
+  replies: number;
+  date: string | null;
+} | null> {
+  const token = process.env.APIFY_TOKEN;
+  if (!token) return null;
+
+  try {
+    const actorId = 'apidojo~tweet-scraper';
+    const apiUrl = `https://api.apify.com/v2/acts/${actorId}/run-sync-get-dataset-items?token=${token}`;
+    const tweetUrl = url.replace('x.com', 'twitter.com');
+
+    const response = await fetch(apiUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        startUrls: [{ url: tweetUrl }],
+        maxItems: 1,
+        addUserInfo: true,
+      }),
+    });
+
+    if (!response.ok) return null;
+    const data = await response.json();
+    if (!data || data.length === 0) return null;
+
+    const tweet = data[0];
+    const images: string[] = [];
+
+    if (tweet.media) {
+      for (const m of tweet.media) {
+        if (m.media_url_https) images.push(m.media_url_https);
+      }
+    }
+    if (tweet.photos) {
+      for (const p of tweet.photos) {
+        if (p.url) images.push(p.url);
+      }
+    }
+    if (tweet.extendedEntities?.media) {
+      for (const m of tweet.extendedEntities.media) {
+        if (m.media_url_https && !images.includes(m.media_url_https)) {
+          images.push(m.media_url_https);
+        }
+      }
+    }
+
+    return {
+      text: tweet.full_text || tweet.text || '',
+      author: tweet.author?.userName || tweet.user?.screen_name || 'unknown',
+      images,
       likes: tweet.likeCount || tweet.favorite_count || 0,
       retweets: tweet.retweetCount || tweet.retweet_count || 0,
       replies: tweet.replyCount || 0,
       date: tweet.createdAt || tweet.created_at || null,
-    },
-  };
+    };
+  } catch (e) {
+    console.error('Apify failed:', e);
+    return null;
+  }
 }
 
-async function fetchTwitterOEmbed(url: string) {
-  const oembedUrl = `https://publish.twitter.com/oembed?url=${encodeURIComponent(url)}&omit_script=true`;
-  const response = await fetch(oembedUrl);
+// Strategy 4: oEmbed (last resort — always returns something)
+async function fetchViaOEmbed(url: string): Promise<{
+  text: string;
+  author: string;
+} | null> {
+  try {
+    const oembedUrl = `https://publish.twitter.com/oembed?url=${encodeURIComponent(url)}&omit_script=true`;
+    const response = await fetch(oembedUrl);
+    if (!response.ok) return null;
+    const data = await response.json();
 
-  if (!response.ok) throw new Error('Could not fetch tweet. Check the URL.');
+    const cleanText = data.html
+      ?.replace(/<[^>]*>/g, '')
+      ?.replace(/&amp;/g, '&')
+      ?.replace(/&lt;/g, '<')
+      ?.replace(/&gt;/g, '>')
+      ?.replace(/&quot;/g, '"')
+      ?.trim() || '';
 
-  const data = await response.json();
+    return {
+      text: cleanText,
+      author: data.author_name || 'unknown',
+    };
+  } catch {
+    return null;
+  }
+}
 
-  // Strip HTML tags from the oembed html to get clean text
-  const cleanText = data.html
-    ?.replace(/<[^>]*>/g, '')
-    ?.replace(/&amp;/g, '&')
-    ?.replace(/&lt;/g, '<')
-    ?.replace(/&gt;/g, '>')
-    ?.replace(/&quot;/g, '"')
-    ?.trim() || '';
+// Main Twitter fetch — cascades through strategies
+async function fetchTwitter(url: string) {
+  const { username, statusId } = parseTwitterUrl(url);
+
+  // Track best result across strategies
+  let bestBody = '';
+  let author = username;
+  let images: string[] = [];
+  let likes = 0;
+  let retweets = 0;
+  let replies = 0;
+  let views = 0;
+  let date: string | null = null;
+  let source = 'unknown';
+  let isArticle = false;
+
+  // ── Strategy 1: FxTwitter (free, fast) ──
+  const fxResult = await fetchViaFxTwitter(username, statusId);
+  if (fxResult) {
+    author = fxResult.author;
+    images = fxResult.images;
+    likes = fxResult.likes;
+    retweets = fxResult.retweets;
+    replies = fxResult.replies;
+    views = fxResult.views;
+    date = fxResult.date;
+    isArticle = fxResult.isArticle;
+
+    if (fxResult.text && fxResult.text.length > 50) {
+      // Good enough — regular tweet or full note tweet
+      bestBody = fxResult.text;
+      source = 'fxtwitter';
+    }
+  }
+
+  // ── Strategy 2: Syndication API (free, may have article/note content) ──
+  // Try if: no body yet, or article detected, or note tweet (might be truncated)
+  if (!bestBody || isArticle || fxResult?.isNoteTweet) {
+    const synResult = await fetchViaSyndication(statusId);
+    if (synResult) {
+      if (!author || author === username) author = synResult.authorHandle || synResult.author || author;
+      if (synResult.images.length > images.length) images = synResult.images;
+      if (!likes && synResult.likes) likes = synResult.likes;
+      if (!date && synResult.date) date = synResult.date;
+
+      if (synResult.text && synResult.text.length > bestBody.length) {
+        bestBody = synResult.text;
+        source = 'syndication';
+      }
+    }
+  }
+
+  // ── Strategy 3: Apify (costs credits — only if we still have no body) ──
+  if (!bestBody || (isArticle && bestBody.length < 100)) {
+    const apifyResult = await fetchViaApify(url);
+    if (apifyResult) {
+      if (!author || author === username) author = apifyResult.author;
+      if (apifyResult.images.length > images.length) images = apifyResult.images;
+      if (!likes && apifyResult.likes) likes = apifyResult.likes;
+      if (!retweets && apifyResult.retweets) retweets = apifyResult.retweets;
+      if (!replies && apifyResult.replies) replies = apifyResult.replies;
+      if (!date && apifyResult.date) date = apifyResult.date;
+
+      if (apifyResult.text && apifyResult.text.length > bestBody.length) {
+        bestBody = apifyResult.text;
+        source = 'apify';
+      }
+    }
+  }
+
+  // ── Strategy 4: oEmbed (last resort) ──
+  if (!bestBody) {
+    const oembedResult = await fetchViaOEmbed(url);
+    if (oembedResult) {
+      bestBody = oembedResult.text;
+      if (!author || author === username) author = oembedResult.author;
+      source = 'oembed';
+    }
+  }
+
+  if (!bestBody) {
+    throw new Error('Could not extract content from this tweet/article. The post may be private or deleted.');
+  }
+
+  // Clean up the body text
+  bestBody = bestBody
+    .replace(/https:\/\/t\.co\/\w+/g, '') // Remove t.co links
+    .trim();
+
+  const title = isArticle
+    ? bestBody.split('\n')[0]?.slice(0, 120) || 'X Article'
+    : bestBody.slice(0, 100) + (bestBody.length > 100 ? '...' : '');
 
   return {
     platform: 'twitter',
-    title: cleanText.slice(0, 100) || 'Tweet',
-    body: cleanText,
-    author: `@${data.author_name || 'unknown'}`,
-    images: [],
+    title,
+    body: bestBody,
+    author: author.startsWith('@') ? author : `@${author}`,
+    images,
     metadata: {
-      authorUrl: data.author_url || null,
-      source: 'oembed',
+      likes,
+      retweets,
+      replies,
+      views: views || null,
+      date,
+      isArticle,
+      source,
     },
   };
 }
