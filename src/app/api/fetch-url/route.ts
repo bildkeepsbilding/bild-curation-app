@@ -570,6 +570,120 @@ async function fetchGitHub(url: string) {
   };
 }
 
+// ── Generic Article ──
+
+function extractMetaContent(html: string, property: string): string {
+  // Match both property="..." and name="..." attributes
+  const regex = new RegExp(
+    `<meta[^>]*(?:property|name)=["']${property}["'][^>]*content=["']([^"']*)["']|<meta[^>]*content=["']([^"']*)["'][^>]*(?:property|name)=["']${property}["']`,
+    'i'
+  );
+  const match = html.match(regex);
+  return (match?.[1] || match?.[2] || '').trim();
+}
+
+function extractArticleContent(html: string): string {
+  // Remove scripts, styles, nav, footer, header, sidebar elements
+  let clean = html
+    .replace(/<script[\s\S]*?<\/script>/gi, '')
+    .replace(/<style[\s\S]*?<\/style>/gi, '')
+    .replace(/<nav[\s\S]*?<\/nav>/gi, '')
+    .replace(/<footer[\s\S]*?<\/footer>/gi, '')
+    .replace(/<header[\s\S]*?<\/header>/gi, '')
+    .replace(/<aside[\s\S]*?<\/aside>/gi, '')
+    .replace(/<!--[\s\S]*?-->/g, '');
+
+  // Try to extract content from <article> tag first
+  const articleMatch = clean.match(/<article[\s\S]*?>([\s\S]*?)<\/article>/i);
+  if (articleMatch) {
+    clean = articleMatch[1];
+  } else {
+    // Try <main> tag
+    const mainMatch = clean.match(/<main[\s\S]*?>([\s\S]*?)<\/main>/i);
+    if (mainMatch) {
+      clean = mainMatch[1];
+    } else {
+      // Try common content class patterns
+      const contentMatch = clean.match(/<div[^>]*class="[^"]*(?:post-content|article-content|entry-content|post-body|story-body)[^"]*"[^>]*>([\s\S]*?)<\/div>/i);
+      if (contentMatch) {
+        clean = contentMatch[1];
+      }
+    }
+  }
+
+  // Convert block elements to newlines, strip remaining HTML
+  clean = clean
+    .replace(/<\/(?:p|div|h[1-6]|li|blockquote|br|tr)>/gi, '\n\n')
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<[^>]*>/g, '')
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+
+  // Filter out very short blocks (likely navigation remnants)
+  const blocks = clean.split(/\n\n+/);
+  const meaningful = blocks.filter(b => b.trim().length > 20);
+  return meaningful.join('\n\n');
+}
+
+async function fetchArticle(url: string) {
+  const response = await fetch(url, {
+    headers: {
+      'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+      'Accept': 'text/html,application/xhtml+xml',
+    },
+  });
+
+  if (!response.ok) throw new Error(`Page returned ${response.status}`);
+
+  const html = await response.text();
+
+  // Extract Open Graph and meta tags
+  const ogTitle = extractMetaContent(html, 'og:title');
+  const ogDescription = extractMetaContent(html, 'og:description');
+  const ogImage = extractMetaContent(html, 'og:image');
+  const ogSiteName = extractMetaContent(html, 'og:site_name');
+  const metaAuthor = extractMetaContent(html, 'author');
+  const metaDescription = extractMetaContent(html, 'description');
+  const publishedTime = extractMetaContent(html, 'article:published_time');
+
+  // Extract <title> tag
+  const titleMatch = html.match(/<title[^>]*>([^<]*)<\/title>/i);
+  const htmlTitle = titleMatch?.[1]?.trim() || '';
+
+  const title = ogTitle || htmlTitle || 'Untitled Article';
+  const body = extractArticleContent(html);
+
+  if (!body || body.length < 50) {
+    throw new Error('Could not extract meaningful content from this page. The page may require JavaScript or authentication.');
+  }
+
+  // Determine author from meta, OG, or domain
+  const domain = new URL(url).hostname.replace('www.', '');
+  const author = metaAuthor || ogSiteName || domain;
+
+  const images: string[] = [];
+  if (ogImage) images.push(ogImage);
+
+  return {
+    platform: 'article',
+    title,
+    body,
+    author,
+    images,
+    metadata: {
+      description: ogDescription || metaDescription || null,
+      siteName: ogSiteName || domain,
+      publishedTime: publishedTime || null,
+    },
+  };
+}
+
 // ── Route handler ──
 
 export async function POST(request: NextRequest) {
@@ -587,7 +701,7 @@ export async function POST(request: NextRequest) {
     } else if (url.includes('github.com')) {
       result = await fetchGitHub(url);
     } else {
-      return NextResponse.json({ error: 'Platform not supported yet. Supports: Reddit, Twitter/X, GitHub' }, { status: 400 });
+      result = await fetchArticle(url);
     }
 
     return NextResponse.json(result);

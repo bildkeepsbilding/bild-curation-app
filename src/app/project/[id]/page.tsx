@@ -102,7 +102,7 @@ export default function ProjectPage() {
   }
 
   async function handleExport() {
-    const md = await exportProjectAsMarkdown(projectId);
+    const md = await exportProjectAsMarkdown(projectId, activeFilter);
     const blob = new Blob([md], { type: 'text/markdown' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -113,7 +113,7 @@ export default function ProjectPage() {
   }
 
   async function handleCopyForClaude() {
-    const md = await exportProjectAsMarkdown(projectId);
+    const md = await exportProjectAsMarkdown(projectId, activeFilter);
     await navigator.clipboard.writeText(md);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
@@ -150,7 +150,7 @@ export default function ProjectPage() {
   }
 
   function getPlaceholder(): string {
-    return 'Paste a Reddit, X, or GitHub URL...';
+    return 'Paste any URL (Reddit, X, GitHub, articles...)';
   }
 
   if (loading) {
