@@ -225,7 +225,7 @@ export async function updateCapture(id: string, updates: Partial<Capture>): Prom
 }
 
 // Build engagement string for a capture based on platform metadata
-function formatEngagement(c: Capture): string {
+export function formatEngagement(c: Capture): string {
   const m = c.metadata;
   if (!m) return '';
 
@@ -260,7 +260,7 @@ function formatEngagement(c: Capture): string {
 }
 
 // Auto-detect content type from capture metadata and content
-function detectContentType(c: Capture): string {
+export function detectContentType(c: Capture): string {
   if (c.platform === 'github') {
     if (c.metadata?.isFile) return 'source_file';
     return 'repository';
@@ -280,7 +280,7 @@ function detectContentType(c: Capture): string {
 }
 
 // Platform display labels for export
-const PLATFORM_DISPLAY: Record<string, string> = {
+export const PLATFORM_DISPLAY: Record<string, string> = {
   twitter: 'X (Twitter)',
   reddit: 'Reddit',
   github: 'GitHub',
