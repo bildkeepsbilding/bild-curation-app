@@ -97,6 +97,158 @@ function parseRedditJsonResponse(data: unknown): RedditJsonResult {
   return { postData, commentsData };
 }
 
+// ── Reddit RSS Strategy (no auth needed, works on Vercel) ──
+
+interface RedditRssResult {
+  title: string;
+  selftext: string;
+  author: string;
+  subreddit: string;
+  images: string[];
+  comments: string[];
+}
+
+function stripHtml(html: string): string {
+  return html
+    .replace(/<\/(?:p|div|h[1-6]|li|blockquote|br|tr|ol|ul)>/gi, '\n\n')
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<[^>]*>/g, '')
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&#x27;/g, "'")
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
+function extractImagesFromRss(contentHtml: string, fullXml: string): string[] {
+  const images: string[] = [];
+
+  // Extract from <img> tags in content HTML
+  const imgRegex = /<img[^>]+src=["']([^"']+)["']/gi;
+  let match;
+  while ((match = imgRegex.exec(contentHtml)) !== null) {
+    let src = match[1].replace(/&amp;/g, '&');
+    if (src.includes('icon.png') || src.includes('redditstatic.com')) continue;
+    // Upgrade preview.redd.it thumbnails to full size by removing width/height params
+    if (src.includes('preview.redd.it')) {
+      src = src.replace(/\?width=\d+.*$/, '');
+    }
+    if (!images.includes(src)) images.push(src);
+  }
+
+  // Also check media:thumbnail tags in the XML
+  const thumbRegex = /media:thumbnail\s+url=["']([^"']+)["']/gi;
+  while ((match = thumbRegex.exec(fullXml)) !== null) {
+    let src = match[1].replace(/&amp;/g, '&');
+    if (src.includes('preview.redd.it')) {
+      src = src.replace(/\?width=\d+.*$/, '');
+    }
+    if (src && !images.includes(src)) images.push(src);
+  }
+
+  return images;
+}
+
+// Simple XML tag extractor (no DOMParser in Node edge runtime)
+function getXmlTagContent(xml: string, tag: string): string {
+  const regex = new RegExp(`<${tag}[^>]*>([\\s\\S]*?)</${tag}>`, 'i');
+  const match = xml.match(regex);
+  return match ? match[1] : '';
+}
+
+function getXmlAttr(xml: string, tag: string, attr: string): string {
+  const tagRegex = new RegExp(`<${tag}[^>]*${attr}=["']([^"']*)["'][^>]*>`, 'i');
+  const match = xml.match(tagRegex);
+  return match ? match[1] : '';
+}
+
+async function fetchRedditRss(url: string): Promise<RedditRssResult> {
+  // Normalize URL to RSS endpoint
+  let rssUrl = url.split('?')[0];
+  if (rssUrl.endsWith('/')) rssUrl = rssUrl.slice(0, -1);
+  if (!rssUrl.endsWith('.rss')) rssUrl += '.rss';
+  // Ensure it's www.reddit.com (not old.reddit.com)
+  rssUrl = rssUrl.replace(/old\.reddit\.com/, 'www.reddit.com');
+
+  const response = await fetch(rssUrl, {
+    headers: { 'User-Agent': 'BildCurationApp/1.0' },
+  });
+
+  if (!response.ok) throw new Error(`Reddit RSS returned ${response.status}`);
+
+  const xml = await response.text();
+  if (!xml.includes('<feed') && !xml.includes('<entry>')) {
+    throw new Error('Reddit RSS returned invalid feed');
+  }
+
+  // Extract subreddit from feed category
+  const subreddit = getXmlAttr(xml, 'category', 'term') || 'unknown';
+
+  // Split entries — first entry is the post (id starts with t3_), rest are comments (t1_)
+  const entryRegex = /<entry>([\s\S]*?)<\/entry>/gi;
+  const entries: string[] = [];
+  let entryMatch;
+  while ((entryMatch = entryRegex.exec(xml)) !== null) {
+    entries.push(entryMatch[1]);
+  }
+
+  if (entries.length === 0) throw new Error('Reddit RSS feed has no entries');
+
+  // First entry = post
+  const postEntry = entries[0];
+  const postId = getXmlTagContent(postEntry, 'id');
+
+  // Verify it's a post (t3_) not a comment
+  if (!postId.startsWith('t3_')) {
+    throw new Error('Reddit RSS: first entry is not a post');
+  }
+
+  const title = getXmlTagContent(postEntry, 'title')
+    .replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"');
+  const authorUri = getXmlTagContent(
+    getXmlTagContent(postEntry, 'author'), 'name'
+  );
+  const author = authorUri.replace('/u/', '') || 'unknown';
+
+  // Content is HTML-encoded inside <content type="html">
+  const contentHtml = getXmlTagContent(postEntry, 'content')
+    .replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&').replace(/&quot;/g, '"').replace(/&#39;/g, "'");
+
+  // Extract images from the HTML content and media:thumbnail tags
+  const images = extractImagesFromRss(contentHtml, xml);
+
+  // Extract the post body — it's inside <div class="md"> within the content
+  const mdMatch = contentHtml.match(/<div class="md">([\s\S]*?)<\/div>(?:\s*<!--\s*SC_ON\s*-->)/i);
+  const selftext = mdMatch ? stripHtml(mdMatch[1]) : stripHtml(contentHtml);
+
+  // Extract comments from remaining entries (t1_ IDs)
+  const comments: string[] = [];
+  for (let i = 1; i < entries.length && comments.length < 20; i++) {
+    const entry = entries[i];
+    const entryId = getXmlTagContent(entry, 'id');
+    if (!entryId.startsWith('t1_')) continue;
+
+    const commentAuthorBlock = getXmlTagContent(entry, 'author');
+    const commentAuthor = getXmlTagContent(commentAuthorBlock, 'name').replace('/u/', '');
+    if (commentAuthor === 'AutoModerator') continue;
+
+    const commentContentHtml = getXmlTagContent(entry, 'content')
+      .replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&').replace(/&quot;/g, '"').replace(/&#39;/g, "'");
+    const commentMdMatch = commentContentHtml.match(/<div class="md">([\s\S]*?)<\/div>(?:\s*<!--\s*SC_ON\s*-->)/i);
+    const commentText = commentMdMatch ? stripHtml(commentMdMatch[1]) : stripHtml(commentContentHtml);
+
+    if (commentText) {
+      comments.push(`u/${commentAuthor}:\n${commentText}`);
+    }
+  }
+
+  return { title, selftext, author, subreddit, images, comments };
+}
+
 // ── Reddit OAuth Strategy (works on Vercel — official API, not IP-blocked) ──
 
 let redditAccessToken: string | null = null;
@@ -261,12 +413,46 @@ async function fetchRedditJsonOld(url: string): Promise<RedditJsonResult> {
 }
 
 async function fetchReddit(url: string) {
-  let postData!: RedditPost;
-  let commentsData: Array<{ kind: string; data: RedditComment & { replies?: { data?: { children?: Array<{ kind: string; data: RedditComment }> } } } }> = [];
   let extractionMethod = '';
   const errors: string[] = [];
 
-  // Strategy 0: Reddit OAuth API (works on Vercel — not IP-blocked)
+  // ── Strategy 0: RSS feed (no auth, works on Vercel) ──
+  try {
+    const rssResult = await fetchRedditRss(url);
+    extractionMethod = 'rss';
+    console.log(`[Reddit] RSS strategy succeeded`);
+
+    const commentText = rssResult.comments.length > 0
+      ? '\n\n---\n\nTop Comments:\n\n' + rssResult.comments.join('\n\n')
+      : '';
+
+    return {
+      platform: 'reddit',
+      title: rssResult.title,
+      body: (rssResult.selftext || '(Link post)') + commentText,
+      author: `u/${rssResult.author}`,
+      images: rssResult.images,
+      metadata: {
+        subreddit: rssResult.subreddit,
+        score: 0, // RSS doesn't include scores
+        numComments: rssResult.comments.length,
+        flair: null,
+        permalink: url,
+        createdUtc: 0,
+        extractionMethod,
+      },
+    };
+  } catch (errRss) {
+    const msgRss = errRss instanceof Error ? errRss.message : 'unknown';
+    errors.push(`RSS: ${msgRss}`);
+    console.warn(`[Reddit] RSS strategy failed: ${msgRss}`);
+  }
+
+  // ── Fallback strategies use JSON API (need full RedditPost for richer metadata) ──
+  let postData!: RedditPost;
+  let commentsData: Array<{ kind: string; data: RedditComment & { replies?: { data?: { children?: Array<{ kind: string; data: RedditComment }> } } } }> = [];
+
+  // Strategy 1: Reddit OAuth API (if credentials configured)
   const hasOAuth = !!(process.env.REDDIT_CLIENT_ID && process.env.REDDIT_CLIENT_SECRET);
   if (hasOAuth) {
     try {
@@ -282,27 +468,27 @@ async function fetchReddit(url: string) {
     }
   }
 
-  // Strategy 1: www.reddit.com .json (fallback for local dev without OAuth)
+  // Strategy 2: www.reddit.com .json
   if (!extractionMethod) {
     try {
       const result = await fetchRedditJsonWww(url);
       postData = result.postData;
       commentsData = result.commentsData;
       extractionMethod = 'www.reddit.com/json';
-      console.log(`[Reddit] Strategy 1 succeeded: ${extractionMethod}`);
+      console.log(`[Reddit] Strategy 2 succeeded: ${extractionMethod}`);
     } catch (err1) {
       const msg1 = err1 instanceof Error ? err1.message : 'unknown';
-      errors.push(`Strategy 1 (www JSON): ${msg1}`);
-      console.warn(`[Reddit] Strategy 1 failed: ${msg1}`);
+      errors.push(`Strategy 2 (www JSON): ${msg1}`);
+      console.warn(`[Reddit] Strategy 2 failed: ${msg1}`);
     }
   }
 
-  // Strategy 2: old.reddit.com HTML scraping
+  // Strategy 3: old.reddit.com HTML scraping
   if (!extractionMethod) {
     try {
       const htmlResult = await fetchRedditOldHtml(url);
       extractionMethod = 'old.reddit.com/html';
-      console.log(`[Reddit] Strategy 2 succeeded: ${extractionMethod}`);
+      console.log(`[Reddit] Strategy 3 succeeded: ${extractionMethod}`);
       postData = {
         title: htmlResult.title,
         selftext: htmlResult.selftext,
@@ -316,22 +502,22 @@ async function fetchReddit(url: string) {
       };
     } catch (err2) {
       const msg2 = err2 instanceof Error ? err2.message : 'unknown';
-      errors.push(`Strategy 2 (old HTML): ${msg2}`);
-      console.warn(`[Reddit] Strategy 2 failed: ${msg2}`);
+      errors.push(`Strategy 3 (old HTML): ${msg2}`);
+      console.warn(`[Reddit] Strategy 3 failed: ${msg2}`);
     }
   }
 
-  // Strategy 3: old.reddit.com .json endpoint
+  // Strategy 4: old.reddit.com .json endpoint
   if (!extractionMethod) {
     try {
       const result = await fetchRedditJsonOld(url);
       postData = result.postData;
       commentsData = result.commentsData;
       extractionMethod = 'old.reddit.com/json';
-      console.log(`[Reddit] Strategy 3 succeeded: ${extractionMethod}`);
+      console.log(`[Reddit] Strategy 4 succeeded: ${extractionMethod}`);
     } catch (err3) {
       const msg3 = err3 instanceof Error ? err3.message : 'unknown';
-      errors.push(`Strategy 3 (old JSON): ${msg3}`);
+      errors.push(`Strategy 4 (old JSON): ${msg3}`);
       console.error(`[Reddit] All strategies failed:`, errors);
       throw new Error(`Reddit extraction failed: ${errors.join(' | ')}`);
     }
