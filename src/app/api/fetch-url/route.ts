@@ -757,6 +757,27 @@ async function fetchReddit(url: string) {
     console.log(`[Reddit] No images found. Raw fields: thumbnail=${postData.thumbnail}, url=${postData.url?.slice(0, 100)}, post_hint=${postData.post_hint}, is_self=${!postData.url_overridden_by_dest}`);
   }
 
+  // Include debug info in response so we can diagnose Vercel-specific issues
+  const _debug = {
+    extractionMethod,
+    imageCount: images.length,
+    rawFields: {
+      has_preview: !!postData.preview,
+      preview_images_count: postData.preview?.images?.length || 0,
+      preview_first_url: postData.preview?.images?.[0]?.source?.url?.slice(0, 100) || null,
+      url_overridden_by_dest: postData.url_overridden_by_dest?.slice(0, 100) || null,
+      url: postData.url?.slice(0, 100) || null,
+      thumbnail: postData.thumbnail?.slice(0, 100) || null,
+      post_hint: postData.post_hint || null,
+      is_gallery: postData.is_gallery || false,
+      is_video: postData.is_video || false,
+      media_metadata_keys: postData.media_metadata ? Object.keys(postData.media_metadata).length : 0,
+      crosspost_parents: postData.crosspost_parent_list?.length || 0,
+      has_selftext_html: !!postData.selftext_html,
+    },
+    extractedImages: images.slice(0, 5),
+  };
+
   return {
     platform: 'reddit',
     title: postData.title,
@@ -772,6 +793,7 @@ async function fetchReddit(url: string) {
       createdUtc: postData.created_utc,
       extractionMethod,
     },
+    _debug,
   };
 }
 
