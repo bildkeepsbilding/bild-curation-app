@@ -328,22 +328,17 @@ function extractImagesFromRss(contentHtml: string, fullXml: string): string[] {
   const imgRegex = /<img[^>]+src=["']([^"']+)["']/gi;
   let match;
   while ((match = imgRegex.exec(contentHtml)) !== null) {
-    let src = match[1].replace(/&amp;/g, '&');
+    const src = match[1].replace(/&amp;/g, '&');
     if (src.includes('icon.png') || src.includes('redditstatic.com')) continue;
-    // Upgrade preview.redd.it thumbnails to full size by removing width/height params
-    if (src.includes('preview.redd.it')) {
-      src = src.replace(/\?width=\d+.*$/, '');
-    }
+    // Keep full URL with query params — Reddit requires the ?s= signature to serve images
     if (!images.includes(src)) images.push(src);
   }
 
   // Also check media:thumbnail tags in the XML
   const thumbRegex = /media:thumbnail\s+url=["']([^"']+)["']/gi;
   while ((match = thumbRegex.exec(fullXml)) !== null) {
-    let src = match[1].replace(/&amp;/g, '&');
-    if (src.includes('preview.redd.it')) {
-      src = src.replace(/\?width=\d+.*$/, '');
-    }
+    const src = match[1].replace(/&amp;/g, '&');
+    // Keep full URL with query params — Reddit requires the ?s= signature
     if (src && !images.includes(src)) images.push(src);
   }
 
