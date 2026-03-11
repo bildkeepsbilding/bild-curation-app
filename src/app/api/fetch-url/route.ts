@@ -71,51 +71,76 @@ function extractRedditComments(
   return comments;
 }
 
-const BROWSER_UA = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36';
+const BROWSER_UA = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36';
 
-async function fetchRedditJson(url: string, attempt = 0): Promise<{ postData: RedditPost; commentsData: Array<{ kind: string; data: RedditComment & { replies?: { data?: { children?: Array<{ kind: string; data: RedditComment }> } } } }> }> {
-  let cleanUrl = url.split('?')[0];
-  if (cleanUrl.endsWith('/')) cleanUrl = cleanUrl.slice(0, -1);
-  if (!cleanUrl.endsWith('.json')) cleanUrl += '.json';
+// Common browser-like headers to avoid Reddit blocking cloud IPs
+const REDDIT_HEADERS = {
+  'User-Agent': BROWSER_UA,
+  'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
+  'Accept-Language': 'en-US,en;q=0.9',
+  'Accept-Encoding': 'gzip, deflate, br',
+  'Cache-Control': 'no-cache',
+  'Pragma': 'no-cache',
+  'Sec-Fetch-Dest': 'document',
+  'Sec-Fetch-Mode': 'navigate',
+  'Sec-Fetch-Site': 'none',
+  'Sec-Fetch-User': '?1',
+  'Upgrade-Insecure-Requests': '1',
+};
 
-  const response = await fetch(cleanUrl, {
-    headers: {
-      'User-Agent': BROWSER_UA,
-      'Accept': 'application/json',
-    },
-  });
+type RedditJsonResult = { postData: RedditPost; commentsData: Array<{ kind: string; data: RedditComment & { replies?: { data?: { children?: Array<{ kind: string; data: RedditComment }> } } } }> };
 
-  // Retry once on rate limit (429) with 1s delay
-  if (response.status === 429 && attempt < 1) {
-    await new Promise(r => setTimeout(r, 1000));
-    return fetchRedditJson(url, attempt + 1);
-  }
-
-  if (!response.ok) throw new Error(`Reddit JSON returned ${response.status}`);
-
-  const data = await response.json();
+function parseRedditJsonResponse(data: unknown): RedditJsonResult {
   if (!Array.isArray(data) || data.length < 1) throw new Error('Unexpected Reddit JSON response');
-
   const postData: RedditPost = data[0].data.children[0].data;
   const commentsData = data.length > 1 ? data[1].data.children : [];
   return { postData, commentsData };
 }
 
-// Fallback: scrape old.reddit.com HTML (more scraper-friendly than new reddit)
+// Strategy 1: www.reddit.com .json endpoint
+async function fetchRedditJsonWww(url: string, attempt = 0): Promise<RedditJsonResult> {
+  let cleanUrl = url.split('?')[0];
+  if (cleanUrl.endsWith('/')) cleanUrl = cleanUrl.slice(0, -1);
+  if (!cleanUrl.endsWith('.json')) cleanUrl += '.json';
+
+  const response = await fetch(cleanUrl, {
+    headers: { ...REDDIT_HEADERS, 'Accept': 'application/json, text/html' },
+  });
+
+  // Retry once on rate limit (429) with 1.5s delay
+  if (response.status === 429 && attempt < 1) {
+    await new Promise(r => setTimeout(r, 1500));
+    return fetchRedditJsonWww(url, attempt + 1);
+  }
+
+  if (!response.ok) throw new Error(`www.reddit.com JSON returned ${response.status}`);
+
+  const text = await response.text();
+  // Reddit sometimes returns HTML even for .json — detect that
+  if (text.trimStart().startsWith('<!') || text.trimStart().startsWith('<html')) {
+    throw new Error('Reddit returned HTML instead of JSON (likely blocked)');
+  }
+
+  const data = JSON.parse(text);
+  return parseRedditJsonResponse(data);
+}
+
+// Strategy 2: old.reddit.com HTML scraping (more scraper-friendly)
 async function fetchRedditOldHtml(url: string): Promise<{ title: string; selftext: string; author: string; subreddit: string }> {
-  // Convert any reddit URL to old.reddit.com
   const oldUrl = url.replace(/(?:www\.)?reddit\.com/, 'old.reddit.com').split('?')[0];
 
   const response = await fetch(oldUrl, {
-    headers: {
-      'User-Agent': BROWSER_UA,
-      'Accept': 'text/html',
-    },
+    headers: REDDIT_HEADERS,
     redirect: 'follow',
   });
 
   if (!response.ok) throw new Error(`old.reddit.com returned ${response.status}`);
   const html = await response.text();
+
+  // Detect block pages
+  if (html.length < 500 && (html.includes('blocked') || html.includes('rate limit'))) {
+    throw new Error('old.reddit.com blocked request');
+  }
 
   // Extract title
   const titleMatch = html.match(/<a[^>]*class="[^"]*title[^"]*"[^>]*>([^<]+)<\/a>/i)
@@ -141,32 +166,58 @@ async function fetchRedditOldHtml(url: string): Promise<{ title: string; selftex
       .trim();
   }
 
-  // Extract author
   const authorMatch = html.match(/class="[^"]*author[^"]*"[^>]*>([^<]+)<\/a>/i);
   const author = authorMatch?.[1] || 'unknown';
-
-  // Extract subreddit
   const subMatch = html.match(/\/r\/(\w+)/);
   const subreddit = subMatch?.[1] || 'unknown';
 
   return { title, selftext, author, subreddit };
 }
 
+// Strategy 3: old.reddit.com .json endpoint (different rate limiting than www)
+async function fetchRedditJsonOld(url: string): Promise<RedditJsonResult> {
+  let cleanUrl = url.replace(/(?:www\.)?reddit\.com/, 'old.reddit.com').split('?')[0];
+  if (cleanUrl.endsWith('/')) cleanUrl = cleanUrl.slice(0, -1);
+  if (!cleanUrl.endsWith('.json')) cleanUrl += '.json';
+
+  const response = await fetch(cleanUrl, {
+    headers: { ...REDDIT_HEADERS, 'Accept': 'application/json, text/html' },
+  });
+
+  if (!response.ok) throw new Error(`old.reddit.com JSON returned ${response.status}`);
+
+  const text = await response.text();
+  if (text.trimStart().startsWith('<!') || text.trimStart().startsWith('<html')) {
+    throw new Error('old.reddit.com returned HTML instead of JSON');
+  }
+
+  const data = JSON.parse(text);
+  return parseRedditJsonResponse(data);
+}
+
 async function fetchReddit(url: string) {
   let postData: RedditPost;
   let commentsData: Array<{ kind: string; data: RedditComment & { replies?: { data?: { children?: Array<{ kind: string; data: RedditComment }> } } } }> = [];
-  let usedFallback = false;
+  let extractionMethod = '';
+  const errors: string[] = [];
 
+  // Strategy 1: www.reddit.com .json
   try {
-    const result = await fetchRedditJson(url);
+    const result = await fetchRedditJsonWww(url);
     postData = result.postData;
     commentsData = result.commentsData;
-  } catch (jsonError) {
-    // Fallback: try old.reddit.com HTML scraping
-    console.warn('Reddit JSON API failed, trying old.reddit.com fallback:', jsonError);
+    extractionMethod = 'www.reddit.com/json';
+    console.log(`[Reddit] Strategy 1 succeeded: ${extractionMethod}`);
+  } catch (err1) {
+    const msg1 = err1 instanceof Error ? err1.message : 'unknown';
+    errors.push(`Strategy 1 (www JSON): ${msg1}`);
+    console.warn(`[Reddit] Strategy 1 failed: ${msg1}`);
+
+    // Strategy 2: old.reddit.com HTML scraping
     try {
       const htmlResult = await fetchRedditOldHtml(url);
-      usedFallback = true;
+      extractionMethod = 'old.reddit.com/html';
+      console.log(`[Reddit] Strategy 2 succeeded: ${extractionMethod}`);
       postData = {
         title: htmlResult.title,
         selftext: htmlResult.selftext,
@@ -178,9 +229,24 @@ async function fetchReddit(url: string) {
         created_utc: 0,
         permalink: new URL(url).pathname,
       };
-    } catch (htmlError) {
-      console.error('old.reddit.com fallback also failed:', htmlError);
-      throw new Error(`Reddit extraction failed: JSON API (${jsonError instanceof Error ? jsonError.message : 'unknown'}) and HTML fallback (${htmlError instanceof Error ? htmlError.message : 'unknown'})`);
+    } catch (err2) {
+      const msg2 = err2 instanceof Error ? err2.message : 'unknown';
+      errors.push(`Strategy 2 (old HTML): ${msg2}`);
+      console.warn(`[Reddit] Strategy 2 failed: ${msg2}`);
+
+      // Strategy 3: old.reddit.com .json endpoint (different rate limiting)
+      try {
+        const result = await fetchRedditJsonOld(url);
+        postData = result.postData;
+        commentsData = result.commentsData;
+        extractionMethod = 'old.reddit.com/json';
+        console.log(`[Reddit] Strategy 3 succeeded: ${extractionMethod}`);
+      } catch (err3) {
+        const msg3 = err3 instanceof Error ? err3.message : 'unknown';
+        errors.push(`Strategy 3 (old JSON): ${msg3}`);
+        console.error(`[Reddit] All 3 strategies failed:`, errors);
+        throw new Error(`Reddit extraction failed: ${errors.join(' | ')}`);
+      }
     }
   }
 
@@ -213,7 +279,7 @@ async function fetchReddit(url: string) {
       flair: postData.link_flair_text || null,
       permalink: `https://reddit.com${postData.permalink}`,
       createdUtc: postData.created_utc,
-      ...(usedFallback ? { source: 'old.reddit.com-fallback' } : {}),
+      extractionMethod,
     },
   };
 }
