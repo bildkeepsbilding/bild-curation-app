@@ -1,5 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 
+// Allow up to 60 seconds for this route (Apify actors need time)
+export const maxDuration = 60;
+
 // ── Reddit ──
 
 interface RedditPost {
