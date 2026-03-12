@@ -9,6 +9,10 @@ export default function LoginPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
+  // Check if this login was initiated by the Chrome extension
+  const isExtension = typeof window !== 'undefined'
+    && new URLSearchParams(window.location.search).get('extension') === 'true';
+
   async function handleMagicLink(e: React.FormEvent) {
     e.preventDefault();
     if (!email.trim()) return;
@@ -16,11 +20,15 @@ export default function LoginPage() {
     setLoading(true);
     setError('');
 
+    const callbackUrl = isExtension
+      ? `${window.location.origin}/auth/callback?next=/extension/auth-success`
+      : `${window.location.origin}/auth/callback`;
+
     const supabase = createClient();
     const { error: authError } = await supabase.auth.signInWithOtp({
       email: email.trim(),
       options: {
-        emailRedirectTo: `${window.location.origin}/auth/callback`,
+        emailRedirectTo: callbackUrl,
       },
     });
 
@@ -34,11 +42,15 @@ export default function LoginPage() {
   }
 
   async function handleGoogleSignIn() {
+    const callbackUrl = isExtension
+      ? `${window.location.origin}/auth/callback?next=/extension/auth-success`
+      : `${window.location.origin}/auth/callback`;
+
     const supabase = createClient();
     await supabase.auth.signInWithOAuth({
       provider: 'google',
       options: {
-        redirectTo: `${window.location.origin}/auth/callback`,
+        redirectTo: callbackUrl,
       },
     });
   }
