@@ -571,7 +571,8 @@ export default function Home() {
                 ) : (
                   <div className="capture-grid stagger-children">
                     {searchResults.map((capture) => {
-                      const hasImage = capture.images && capture.images.length > 0 && capture.platform !== 'github';
+                      const hasOgImage = capture.platform === 'article' ? !!(capture.metadata as Record<string, unknown>)?.hasOgImage : true;
+                      const hasImage = capture.images && capture.images.length > 0 && capture.platform !== 'github' && hasOgImage;
                       const tag = getUniqueContentTag(capture);
                       const projectName = searchProjectMap[capture.projectId]?.name || 'Unknown';
                       return (
@@ -584,7 +585,7 @@ export default function Home() {
                           {hasImage ? (
                             <div className="relative w-full" style={{ height: '140px' }}>
                               <img src={capture.images[0]} alt="" className="w-full h-full object-cover" loading="lazy" referrerPolicy="no-referrer" onError={(e) => { const parent = (e.target as HTMLImageElement).closest('.relative') as HTMLElement | null; if (parent) parent.style.display = 'none'; }} />
-                              <div className="absolute inset-0" style={{ background: 'linear-gradient(to top, var(--bg-elevated) 0%, transparent 60%)' }} />
+                              <div className="absolute inset-0" style={{ background: 'linear-gradient(to top, var(--bg-elevated) 0%, rgba(0,0,0,0.4) 60%, rgba(0,0,0,0.15) 100%)' }} />
                               <div className="absolute top-3 left-3 flex items-center gap-1.5">
                                 <span className="px-2 py-0.5 rounded-md text-[11px] font-semibold" style={{ background: (platformColors[capture.platform] || platformColors.other) + 'dd', color: '#fff', backdropFilter: 'blur(4px)' }}>
                                   {capture.platform === 'twitter' ? 'X' : capture.platform === 'reddit' ? 'Reddit' : capture.platform === 'github' ? 'GitHub' : 'Article'}

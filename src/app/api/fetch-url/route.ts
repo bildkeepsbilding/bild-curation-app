@@ -1806,6 +1806,7 @@ async function fetchArticle(url: string) {
       description: ogDescription || metaDescription || null,
       siteName: ogSiteName || domain,
       publishedTime: publishedTime || jsonLdDate || null,
+      hasOgImage: !!(ogImage || twitterImage || jsonLdImage),
     },
   };
 }
