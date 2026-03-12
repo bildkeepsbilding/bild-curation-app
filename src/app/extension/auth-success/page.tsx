@@ -5,10 +5,9 @@ import { createClient } from '@/lib/supabase/client';
 
 export default function ExtensionAuthSuccess() {
   const [status, setStatus] = useState<'loading' | 'success' | 'error'>('loading');
-  const [sessionData, setSessionData] = useState<string>('');
 
   useEffect(() => {
-    async function getSession() {
+    async function checkSession() {
       try {
         const supabase = createClient();
         const { data: { session }, error } = await supabase.auth.getSession();
@@ -18,20 +17,13 @@ export default function ExtensionAuthSuccess() {
           return;
         }
 
-        const tokenData = JSON.stringify({
-          access_token: session.access_token,
-          refresh_token: session.refresh_token,
-          expires_at: session.expires_at,
-        });
-
-        setSessionData(tokenData);
         setStatus('success');
       } catch {
         setStatus('error');
       }
     }
 
-    getSession();
+    checkSession();
   }, []);
 
   return (
@@ -47,7 +39,7 @@ export default function ExtensionAuthSuccess() {
               style={{ borderColor: '#2a2a2d', borderTopColor: '#e8ff47' }}
             />
             <p className="text-[14px]" style={{ color: '#8a8a8e' }}>
-              Connecting extension...
+              Connecting...
             </p>
           </>
         )}
@@ -72,10 +64,13 @@ export default function ExtensionAuthSuccess() {
               className="text-[20px] font-bold mb-2"
               style={{ color: '#f0f0f0' }}
             >
-              Extension Connected
+              Connected!
             </h1>
             <p className="text-[14px]" style={{ color: '#8a8a8e' }}>
-              This tab will close automatically. You can return to the extension.
+              Click the Bild extension icon to start capturing.
+            </p>
+            <p className="text-[12px] mt-2" style={{ color: '#5a5a5e' }}>
+              You can close this tab.
             </p>
           </>
         )}
@@ -100,21 +95,13 @@ export default function ExtensionAuthSuccess() {
               className="text-[20px] font-bold mb-2"
               style={{ color: '#f0f0f0' }}
             >
-              Connection Failed
+              Sign-in Failed
             </h1>
             <p className="text-[14px]" style={{ color: '#8a8a8e' }}>
-              No active session found. Please sign in first and try again from the extension.
+              No active session found. Please try signing in again from the extension.
             </p>
           </>
         )}
-
-        {/* Hidden element for extension to read session data */}
-        <div
-          id="extension-session-data"
-          data-session={sessionData}
-          data-status={status}
-          style={{ display: 'none' }}
-        />
       </div>
     </div>
   );
