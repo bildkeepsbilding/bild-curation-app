@@ -28,8 +28,14 @@ export default function Home() {
   const [searchProjectMap, setSearchProjectMap] = useState<Record<string, Project>>({});
   const [searchCache, setSearchCache] = useState<{ captures: Capture[]; projectMap: Record<string, Project> } | null>(null);
   const [duplicateInfo, setDuplicateInfo] = useState<{ capture: Capture; project: Project } | null>(null);
+  const [toast, setToast] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const urlInputRef = useRef<HTMLInputElement>(null);
+
+  function showToast(msg: string) {
+    setToast(msg);
+    setTimeout(() => setToast(null), 3000);
+  }
 
   useEffect(() => {
     loadProjects();
@@ -40,6 +46,29 @@ export default function Home() {
       inputRef.current.focus();
     }
   }, [showCreate]);
+
+  // Keyboard shortcuts
+  useEffect(() => {
+    function handleKeyDown(e: KeyboardEvent) {
+      // Escape: close topmost modal
+      if (e.key === 'Escape') {
+        if (deleteConfirm) { setDeleteConfirm(null); return; }
+        if (duplicateInfo) { setDuplicateInfo(null); return; }
+        if (showCreate) { setShowCreate(false); setNewName(''); setNewBrief(''); return; }
+      }
+      // Cmd/Ctrl+V: focus URL input when no input is focused
+      if ((e.metaKey || e.ctrlKey) && e.key === 'v') {
+        const active = document.activeElement;
+        const isInput = active instanceof HTMLInputElement || active instanceof HTMLTextAreaElement;
+        if (!isInput && urlInputRef.current) {
+          e.preventDefault();
+          urlInputRef.current.focus();
+        }
+      }
+    }
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [deleteConfirm, duplicateInfo, showCreate]);
 
   async function loadProjects() {
     try {
@@ -164,6 +193,7 @@ export default function Home() {
       setUrlInput('');
       setSearchCache(null);
       await loadProjects();
+      showToast('Saved to Inbox');
     } catch (e) {
       setFetchError(e instanceof Error ? e.message : 'Failed to capture');
     } finally {
@@ -333,14 +363,19 @@ export default function Home() {
                   style={{ background: 'var(--accent)', color: 'var(--bg)' }}
                 >
                   {fetching ? (
-                    <div className="w-4 h-4 rounded-full border-2 animate-spin" style={{ borderColor: 'var(--bg)', borderTopColor: 'transparent' }} />
+                    <>
+                      <div className="w-4 h-4 rounded-full border-2 animate-spin" style={{ borderColor: 'var(--bg)', borderTopColor: 'transparent' }} />
+                      Capturing...
+                    </>
                   ) : (
-                    <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-                      <path d="M8 2v8M4 6l4 4 4-4" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-                      <path d="M2 12h12" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
-                    </svg>
+                    <>
+                      <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                        <path d="M8 2v8M4 6l4 4 4-4" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                        <path d="M2 12h12" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+                      </svg>
+                      Capture
+                    </>
                   )}
-                  Capture
                 </button>
               </div>
               {fetchError && (
@@ -510,11 +545,11 @@ export default function Home() {
                               <img src={capture.images[0]} alt="" className="w-full h-full object-cover" loading="lazy" referrerPolicy="no-referrer" onError={(e) => { const parent = (e.target as HTMLImageElement).closest('.relative') as HTMLElement | null; if (parent) parent.style.display = 'none'; }} />
                               <div className="absolute inset-0" style={{ background: 'linear-gradient(to top, var(--bg-elevated) 0%, transparent 60%)' }} />
                               <div className="absolute top-3 left-3 flex items-center gap-1.5">
-                                <span className="px-2 py-0.5 rounded-md text-[10px] font-semibold" style={{ background: (platformColors[capture.platform] || platformColors.other) + 'dd', color: '#fff', backdropFilter: 'blur(4px)' }}>
+                                <span className="px-2 py-0.5 rounded-md text-[11px] font-semibold" style={{ background: (platformColors[capture.platform] || platformColors.other) + 'dd', color: '#fff', backdropFilter: 'blur(4px)' }}>
                                   {capture.platform === 'twitter' ? 'X' : capture.platform === 'reddit' ? 'Reddit' : capture.platform === 'github' ? 'GitHub' : 'Article'}
                                 </span>
                                 {tag && (
-                                <span className="px-1.5 py-0.5 rounded text-[10px] font-medium" style={{ background: 'rgba(0,0,0,0.5)', color: 'var(--text-tertiary)', backdropFilter: 'blur(4px)' }}>
+                                <span className="px-2 py-0.5 rounded text-[11px] font-medium" style={{ background: 'rgba(0,0,0,0.5)', color: 'var(--text-tertiary)', backdropFilter: 'blur(4px)' }}>
                                   {tag}
                                 </span>
                                 )}
@@ -525,11 +560,11 @@ export default function Home() {
                             <div className="flex items-center gap-2 mb-2">
                               {!hasImage && (
                                 <>
-                                  <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold" style={{ background: (platformColors[capture.platform] || platformColors.other) + '20', color: platformColors[capture.platform] || platformColors.other }}>
+                                  <span className="px-2 py-0.5 rounded text-[11px] font-semibold" style={{ background: (platformColors[capture.platform] || platformColors.other) + '20', color: platformColors[capture.platform] || platformColors.other }}>
                                     {capture.platform === 'twitter' ? 'X' : capture.platform === 'reddit' ? 'Reddit' : capture.platform === 'github' ? 'GitHub' : 'Article'}
                                   </span>
                                   {tag && (
-                                  <span className="px-1.5 py-0.5 rounded text-[10px] font-medium" style={{ background: 'var(--bg-hover)', color: 'var(--text-tertiary)' }}>
+                                  <span className="px-2 py-0.5 rounded text-[11px] font-medium" style={{ background: 'var(--bg-hover)', color: 'var(--text-tertiary)' }}>
                                     {tag}
                                   </span>
                                   )}
@@ -539,7 +574,7 @@ export default function Home() {
                                 {projectName}
                               </span>
                             </div>
-                            <h3 className="text-sm font-semibold mb-1.5 line-clamp-2" style={{ color: 'var(--text-primary)', lineHeight: 1.4 }}>
+                            <h3 className="text-[15px] font-bold mb-1.5 line-clamp-2" style={{ color: 'var(--text-primary)', lineHeight: 1.4 }}>
                               {capture.title}
                             </h3>
                             <div className="flex items-center justify-between">
@@ -685,6 +720,18 @@ export default function Home() {
           </>
         )}
       </div>
+
+      {/* Toast */}
+      {toast && (
+        <div className="fixed bottom-6 left-1/2 z-[70] animate-toast-in" style={{ transform: 'translateX(-50%)' }}>
+          <div className="flex items-center gap-2 px-4 py-2.5 rounded-full text-sm font-semibold shadow-lg" style={{ background: 'var(--accent)', color: 'var(--bg)' }}>
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+              <path d="M3 8.5l3.5 3.5L13 4" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+            {toast}
+          </div>
+        </div>
+      )}
     </main>
   );
 }

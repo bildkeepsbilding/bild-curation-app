@@ -71,7 +71,15 @@ export default function ProjectPage() {
   const [copyTarget, setCopyTarget] = useState<Capture | null>(null);
   const [copyProjects, setCopyProjects] = useState<Project[]>([]);
   const [duplicateInfo, setDuplicateInfo] = useState<{ capture: Capture; project: Project } | null>(null);
+  const [toast, setToast] = useState<string | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [showExportConfirm, setShowExportConfirm] = useState(false);
   const urlInputRef = useRef<HTMLInputElement>(null);
+
+  function showToast(msg: string) {
+    setToast(msg);
+    setTimeout(() => setToast(null), 3000);
+  }
   const projectNameInputRef = useRef<HTMLInputElement>(null);
   const noteInputRef = useRef<HTMLTextAreaElement>(null);
   const briefInputRef = useRef<HTMLTextAreaElement>(null);
@@ -102,6 +110,33 @@ export default function ProjectPage() {
   }, [menuOpen]);
   useEffect(() => { if (editingBrief && briefInputRef.current) briefInputRef.current.focus(); }, [editingBrief]);
   useEffect(() => { if (editingProjectName && projectNameInputRef.current) projectNameInputRef.current.focus(); }, [editingProjectName]);
+
+  // Keyboard shortcuts
+  useEffect(() => {
+    function handleKeyDown(e: KeyboardEvent) {
+      // Escape: close topmost modal (highest z-index first)
+      if (e.key === 'Escape') {
+        if (confirmDelete) { setConfirmDelete(null); return; }
+        if (moveTarget) { setMoveTarget(null); return; }
+        if (copyTarget) { setCopyTarget(null); return; }
+        if (confirmDeleteProject) { setConfirmDeleteProject(false); return; }
+        if (showExportConfirm) { setShowExportConfirm(false); return; }
+        if (duplicateInfo) { setDuplicateInfo(null); return; }
+        if (viewing) { setViewing(null); setEditingNote(false); return; }
+      }
+      // Cmd/Ctrl+V: focus URL input when no input is focused
+      if ((e.metaKey || e.ctrlKey) && e.key === 'v') {
+        const active = document.activeElement;
+        const isInput = active instanceof HTMLInputElement || active instanceof HTMLTextAreaElement;
+        if (!isInput && urlInputRef.current) {
+          e.preventDefault();
+          urlInputRef.current.focus();
+        }
+      }
+    }
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [confirmDelete, moveTarget, copyTarget, confirmDeleteProject, showExportConfirm, duplicateInfo, viewing]);
 
   const isInbox = projectId === INBOX_PROJECT_ID;
 
@@ -152,6 +187,7 @@ export default function ProjectPage() {
       await addCapture(projectId, url, data.title, data.body, data.author, data.images || [], data.metadata || {});
       setUrlInput('');
       await loadData();
+      showToast(project ? `Captured to ${project.name}` : 'Captured');
     } catch (e) {
       setFetchError(e instanceof Error ? e.message : 'Something went wrong');
     } finally {
@@ -245,12 +281,18 @@ export default function ProjectPage() {
 
   async function handleConfirmDelete() {
     if (!confirmDelete) return;
+    const captureId = confirmDelete.id;
+    setConfirmDelete(null);
+    setViewing(null);
+    setDeletingId(captureId);
+    // Wait for animation to complete
+    await new Promise(r => setTimeout(r, 300));
     try {
-      await deleteCapture(confirmDelete.id, projectId);
-      setConfirmDelete(null);
-      setViewing(null);
+      await deleteCapture(captureId, projectId);
+      setDeletingId(null);
       await loadData();
     } catch (e) {
+      setDeletingId(null);
       console.error('Delete failed:', e);
     }
   }
@@ -655,7 +697,7 @@ export default function ProjectPage() {
           </div>
           {!isInbox && captures.length > 0 && (
             <div className="flex-shrink-0 ml-3 hidden sm:block">
-              <button onClick={handleExport} disabled={exporting} className="flex items-center gap-1.5 px-4 py-2 rounded-full text-xs font-semibold transition-all" style={{ background: exporting ? 'var(--bg-elevated)' : 'var(--accent)', color: exporting ? 'var(--text-secondary)' : 'var(--bg)', border: exporting ? '1px solid var(--border)' : '1px solid var(--accent)', opacity: exporting ? 0.8 : 1 }}>
+              <button onClick={() => setShowExportConfirm(true)} disabled={exporting} className="flex items-center gap-1.5 px-4 py-2 rounded-full text-xs font-semibold transition-all" style={{ background: exporting ? 'var(--bg-elevated)' : 'var(--accent)', color: exporting ? 'var(--text-secondary)' : 'var(--bg)', border: exporting ? '1px solid var(--border)' : '1px solid var(--accent)', opacity: exporting ? 0.8 : 1 }}>
                 {exporting ? (
                   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" className="animate-spin"><circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="2" opacity="0.25"/><path d="M12 2a10 10 0 019.75 7.75" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/></svg>
                 ) : (
@@ -710,8 +752,13 @@ export default function ProjectPage() {
       <div className="px-5 mb-4">
         <div className="flex gap-2">
           <input ref={urlInputRef} type="url" value={urlInput} onChange={(e) => { setUrlInput(e.target.value); setFetchError(''); setDuplicateInfo(null); }} onKeyDown={(e) => e.key === 'Enter' && handleCheckDuplicate()} placeholder="Paste any URL (Reddit, X, GitHub, articles...)" className="flex-1 px-4 py-3 rounded-xl text-sm outline-none" style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border)', color: 'var(--text-primary)' }} disabled={fetching} />
-          <button onClick={handleCheckDuplicate} disabled={!urlInput.trim() || fetching} className="px-5 py-3 rounded-xl text-sm font-semibold active:scale-95 disabled:opacity-30" style={{ background: 'var(--accent)', color: 'var(--bg)' }}>
-            {fetching ? <div className="w-4 h-4 rounded-full border-2 animate-spin" style={{ borderColor: 'var(--bg)', borderTopColor: 'transparent' }} /> : 'Capture'}
+          <button onClick={handleCheckDuplicate} disabled={!urlInput.trim() || fetching} className="px-5 py-3 rounded-xl text-sm font-semibold active:scale-95 disabled:opacity-30 flex items-center gap-2" style={{ background: 'var(--accent)', color: 'var(--bg)' }}>
+            {fetching ? (
+              <>
+                <div className="w-4 h-4 rounded-full border-2 animate-spin" style={{ borderColor: 'var(--bg)', borderTopColor: 'transparent' }} />
+                Capturing...
+              </>
+            ) : 'Capture'}
           </button>
         </div>
         {fetchError && <p className="text-xs mt-2 px-1" style={{ color: 'var(--danger)' }}>{fetchError}</p>}
@@ -780,7 +827,7 @@ export default function ProjectPage() {
               const bodyPreview = cleanBody(capture.body.split('\n---')[0]);
               const isEditing = editingCapture === capture.id;
               return (
-                <div key={capture.id} className="capture-card group relative w-full text-left rounded-2xl overflow-hidden transition-all" style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border-subtle)' }}>
+                <div key={capture.id} className={`capture-card group relative w-full text-left rounded-2xl overflow-hidden transition-all ${deletingId === capture.id ? 'animate-delete-out' : ''}`} style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border-subtle)' }}>
                   {/* Reorder arrows + Three-dot menu */}
                   <div className="absolute top-2 right-2 z-10 flex items-center gap-0.5" ref={menuOpen === capture.id ? menuRef : undefined}>
                     {/* Reorder arrows — visible on hover */}
@@ -851,11 +898,11 @@ export default function ProjectPage() {
                         <img src={capture.images[0]} alt="" className="w-full h-full object-cover" loading="lazy" referrerPolicy="no-referrer" onError={(e) => { const parent = (e.target as HTMLImageElement).closest('.relative') as HTMLElement | null; if (parent) parent.style.display = 'none'; }} />
                         <div className="absolute inset-0" style={{ background: 'linear-gradient(to top, var(--bg-elevated) 0%, transparent 60%)' }} />
                         <div className="absolute top-3 left-3 flex items-center gap-1">
-                          <span className="px-2 py-0.5 rounded-md text-[10px] font-semibold" style={{ background: PLATFORM_LABELS[capture.platform]?.color + 'dd', color: '#fff', backdropFilter: 'blur(4px)' }}>
+                          <span className="px-2 py-0.5 rounded-md text-[11px] font-semibold" style={{ background: PLATFORM_LABELS[capture.platform]?.color + 'dd', color: '#fff', backdropFilter: 'blur(4px)' }}>
                             {PLATFORM_LABELS[capture.platform]?.label}
                           </span>
                           {(() => { const tag = getUniqueContentTag(capture); return tag ? (
-                          <span className="px-1.5 py-0.5 rounded-md text-[10px] font-medium" style={{ background: 'rgba(0,0,0,0.5)', color: 'rgba(255,255,255,0.7)', backdropFilter: 'blur(4px)' }}>
+                          <span className="px-2 py-0.5 rounded-md text-[11px] font-medium" style={{ background: 'rgba(0,0,0,0.5)', color: 'rgba(255,255,255,0.7)', backdropFilter: 'blur(4px)' }}>
                             {tag}
                           </span>
                           ) : null; })()}
@@ -866,11 +913,11 @@ export default function ProjectPage() {
                     <div className="p-4" style={{ marginTop: hasImage ? '-24px' : '0', position: 'relative' }}>
                       {!hasImage && (
                         <div className="mb-2 flex items-center gap-1.5">
-                          <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold" style={{ background: PLATFORM_LABELS[capture.platform]?.color + '20', color: PLATFORM_LABELS[capture.platform]?.color }}>
+                          <span className="px-2 py-0.5 rounded text-[11px] font-semibold" style={{ background: PLATFORM_LABELS[capture.platform]?.color + '20', color: PLATFORM_LABELS[capture.platform]?.color }}>
                             {PLATFORM_LABELS[capture.platform]?.label}
                           </span>
                           {(() => { const tag = getUniqueContentTag(capture); return tag ? (
-                            <span className="px-1.5 py-0.5 rounded text-[10px] font-medium" style={{ background: 'var(--bg-hover)', color: 'var(--text-tertiary)' }}>
+                            <span className="px-2 py-0.5 rounded text-[11px] font-medium" style={{ background: 'var(--bg-hover)', color: 'var(--text-tertiary)' }}>
                               {tag}
                             </span>
                           ) : null; })()}
@@ -888,7 +935,7 @@ export default function ProjectPage() {
                           autoFocus
                         />
                       ) : (
-                        <h3 className="text-sm font-semibold mb-1.5 line-clamp-2" style={{ color: 'var(--text-primary)', lineHeight: 1.4 }}>
+                        <h3 className="text-[15px] font-bold mb-1.5 line-clamp-2" style={{ color: 'var(--text-primary)', lineHeight: 1.4 }}>
                           {capture.title}
                         </h3>
                       )}
@@ -1015,11 +1062,41 @@ export default function ProjectPage() {
         </div>
       )}
 
+      {/* ── Export Confirmation Modal ── */}
+      {showExportConfirm && (
+        <div className="fixed inset-0 z-[60] flex items-end sm:items-center justify-center" style={{ background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(4px)' }} onClick={(e) => { if (e.target === e.currentTarget) setShowExportConfirm(false); }}>
+          <div className="w-full sm:max-w-sm sm:mx-4 p-5 rounded-t-2xl sm:rounded-2xl animate-fade-up" style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border)' }}>
+            <h3 className="text-base font-semibold mb-3" style={{ color: 'var(--text-primary)' }}>Package for Claude</h3>
+            <div className="space-y-2 mb-5">
+              <div className="flex items-center justify-between text-sm">
+                <span style={{ color: 'var(--text-secondary)' }}>Captures</span>
+                <span className="font-mono font-semibold" style={{ color: 'var(--text-primary)' }}>{filteredCaptures.length}</span>
+              </div>
+              <div className="flex items-center justify-between text-sm">
+                <span style={{ color: 'var(--text-secondary)' }}>Images</span>
+                <span className="font-mono font-semibold" style={{ color: 'var(--text-primary)' }}>{filteredCaptures.reduce((sum, c) => sum + (c.images?.length || 0), 0)}</span>
+              </div>
+              <div className="flex items-center justify-between text-sm">
+                <span style={{ color: 'var(--text-secondary)' }}>Context notes</span>
+                <span className="font-mono font-semibold" style={{ color: 'var(--text-primary)' }}>{filteredCaptures.filter(c => c.note).length}</span>
+              </div>
+            </div>
+            <div className="flex gap-2">
+              <button onClick={() => setShowExportConfirm(false)} className="flex-1 py-2.5 rounded-xl text-sm font-medium" style={{ color: 'var(--text-secondary)', border: '1px solid var(--border)' }}>Cancel</button>
+              <button onClick={() => { setShowExportConfirm(false); handleExport(); }} className="flex-1 py-2.5 rounded-xl text-sm font-semibold flex items-center justify-center gap-2" style={{ background: 'var(--accent)', color: 'var(--bg)' }}>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none"><path d="M20 12v6a2 2 0 01-2 2H6a2 2 0 01-2-2v-6M12 3v12m0 0l-4-4m4 4l4-4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" /></svg>
+                Download
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* ── Mobile Sticky Export Bar ── */}
       {!isInbox && captures.length > 0 && (
         <div className="fixed bottom-0 left-0 right-0 z-40 sm:hidden safe-bottom" style={{ background: 'var(--bg-elevated)ee', backdropFilter: 'blur(12px)', borderTop: '1px solid var(--border)' }}>
           <div className="px-5 py-3">
-            <button onClick={handleExport} disabled={exporting} className="w-full flex items-center justify-center gap-2 py-3 rounded-xl text-sm font-semibold transition-all" style={{ background: exporting ? 'var(--bg-hover)' : 'var(--accent)', color: exporting ? 'var(--text-secondary)' : 'var(--bg)', border: exporting ? '1px solid var(--border)' : '1px solid var(--accent)' }}>
+            <button onClick={() => setShowExportConfirm(true)} disabled={exporting} className="w-full flex items-center justify-center gap-2 py-3 rounded-xl text-sm font-semibold transition-all" style={{ background: exporting ? 'var(--bg-hover)' : 'var(--accent)', color: exporting ? 'var(--text-secondary)' : 'var(--bg)', border: exporting ? '1px solid var(--border)' : '1px solid var(--accent)' }}>
               {exporting ? (
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" className="animate-spin"><circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="2" opacity="0.25"/><path d="M12 2a10 10 0 019.75 7.75" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/></svg>
               ) : (
@@ -1027,6 +1104,18 @@ export default function ProjectPage() {
               )}
               {exporting ? exportStatus || 'Packaging...' : 'Package for Claude'}
             </button>
+          </div>
+        </div>
+      )}
+
+      {/* Toast */}
+      {toast && (
+        <div className="fixed bottom-6 left-1/2 z-[70] animate-toast-in" style={{ transform: 'translateX(-50%)' }}>
+          <div className="flex items-center gap-2 px-4 py-2.5 rounded-full text-sm font-semibold shadow-lg" style={{ background: 'var(--accent)', color: 'var(--bg)' }}>
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+              <path d="M3 8.5l3.5 3.5L13 4" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+            {toast}
           </div>
         </div>
       )}
