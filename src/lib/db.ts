@@ -1,6 +1,8 @@
 const DB_NAME = 'curation-app';
 const DB_VERSION = 3;
 
+export const INBOX_PROJECT_ID = '__inbox__';
+
 export type Platform = 'reddit' | 'twitter' | 'github' | 'article' | 'other';
 
 export interface Project {
@@ -113,6 +115,10 @@ export async function updateProject(id: string, updates: Partial<Project>): Prom
   const db = await openDB();
   const project = await getProject(id);
   if (!project) return;
+  // Prevent renaming the Inbox
+  if (id === INBOX_PROJECT_ID) {
+    delete updates.name;
+  }
   return new Promise((resolve, reject) => {
     const tx = db.transaction('projects', 'readwrite');
     tx.objectStore('projects').put({ ...project, ...updates, updatedAt: Date.now() });
@@ -122,6 +128,7 @@ export async function updateProject(id: string, updates: Partial<Project>): Prom
 }
 
 export async function deleteProject(id: string): Promise<void> {
+  if (id === INBOX_PROJECT_ID) return; // Inbox cannot be deleted
   const db = await openDB();
   const captures = await getCaptures(id);
   return new Promise((resolve, reject) => {
@@ -131,6 +138,27 @@ export async function deleteProject(id: string): Promise<void> {
       tx.objectStore('captures').delete(c.id);
     }
     tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+}
+
+export async function ensureInbox(): Promise<Project> {
+  const existing = await getProject(INBOX_PROJECT_ID);
+  if (existing) return existing;
+
+  const db = await openDB();
+  const inbox: Project = {
+    id: INBOX_PROJECT_ID,
+    name: 'Inbox',
+    brief: '',
+    createdAt: Date.now(),
+    updatedAt: Date.now(),
+    captureCount: 0,
+  };
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction('projects', 'readwrite');
+    tx.objectStore('projects').put(inbox);
+    tx.oncomplete = () => resolve(inbox);
     tx.onerror = () => reject(tx.error);
   });
 }

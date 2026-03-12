@@ -1475,33 +1475,53 @@ function extractArticleContent(html: string): string {
   let clean = html
     .replace(/<script[\s\S]*?<\/script>/gi, '')
     .replace(/<style[\s\S]*?<\/style>/gi, '')
+    .replace(/<noscript[\s\S]*?<\/noscript>/gi, '')
     .replace(/<nav[\s\S]*?<\/nav>/gi, '')
     .replace(/<footer[\s\S]*?<\/footer>/gi, '')
     .replace(/<header[\s\S]*?<\/header>/gi, '')
     .replace(/<aside[\s\S]*?<\/aside>/gi, '')
+    .replace(/<svg[\s\S]*?<\/svg>/gi, '')
     .replace(/<!--[\s\S]*?-->/g, '');
 
-  // Try to extract content from <article> tag first
-  const articleMatch = clean.match(/<article[\s\S]*?>([\s\S]*?)<\/article>/i);
-  if (articleMatch) {
-    clean = articleMatch[1];
-  } else {
-    // Try <main> tag
-    const mainMatch = clean.match(/<main[\s\S]*?>([\s\S]*?)<\/main>/i);
-    if (mainMatch) {
-      clean = mainMatch[1];
-    } else {
-      // Try common content class patterns
-      const contentMatch = clean.match(/<div[^>]*class="[^"]*(?:post-content|article-content|entry-content|post-body|story-body)[^"]*"[^>]*>([\s\S]*?)<\/div>/i);
-      if (contentMatch) {
-        clean = contentMatch[1];
-      }
+  // Platform-specific selectors (Substack, Medium, Ghost, WordPress)
+  const contentSelectors = [
+    // Substack
+    /<div[^>]*class="[^"]*(?:body markup|available-content|post-content)[^"]*"[^>]*>([\s\S]*?)<\/div>\s*(?:<\/div>|<div[^>]*class="[^"]*(?:footer|subscription|subscribe))/i,
+    // Medium
+    /<article[^>]*>([\s\S]*?)<\/article>/i,
+    /<section[^>]*data-testid="post-sections"[^>]*>([\s\S]*?)<\/section>/i,
+    // Ghost
+    /<div[^>]*class="[^"]*(?:gh-content|post-content|article-body)[^"]*"[^>]*>([\s\S]*?)<\/div>/i,
+    // WordPress / generic
+    /<div[^>]*class="[^"]*(?:entry-content|post-body|story-body|article-content|blog-post-content|post-text|prose)[^"]*"[^>]*>([\s\S]*?)<\/div>/i,
+    // Fallback: <article> tag
+    /<article[\s\S]*?>([\s\S]*?)<\/article>/i,
+    // Fallback: <main> tag
+    /<main[\s\S]*?>([\s\S]*?)<\/main>/i,
+  ];
+
+  let extracted = '';
+  for (const selector of contentSelectors) {
+    const match = clean.match(selector);
+    if (match?.[1] && match[1].length > 100) {
+      extracted = match[1];
+      break;
     }
   }
 
+  if (extracted) {
+    clean = extracted;
+  }
+
+  // Preserve headings as markdown-style headers before stripping HTML
+  clean = clean
+    .replace(/<h1[^>]*>([\s\S]*?)<\/h1>/gi, '\n\n# $1\n\n')
+    .replace(/<h2[^>]*>([\s\S]*?)<\/h2>/gi, '\n\n## $1\n\n')
+    .replace(/<h3[^>]*>([\s\S]*?)<\/h3>/gi, '\n\n### $1\n\n');
+
   // Convert block elements to newlines, strip remaining HTML
   clean = clean
-    .replace(/<\/(?:p|div|h[1-6]|li|blockquote|br|tr)>/gi, '\n\n')
+    .replace(/<\/(?:p|div|li|blockquote|br|tr|section|figure|figcaption)>/gi, '\n\n')
     .replace(/<br\s*\/?>/gi, '\n')
     .replace(/<[^>]*>/g, '')
     .replace(/&nbsp;/g, ' ')
@@ -1510,6 +1530,15 @@ function extractArticleContent(html: string): string {
     .replace(/&gt;/g, '>')
     .replace(/&quot;/g, '"')
     .replace(/&#39;/g, "'")
+    .replace(/&mdash;/g, '\u2014')
+    .replace(/&ndash;/g, '\u2013')
+    .replace(/&hellip;/g, '\u2026')
+    .replace(/&rsquo;/g, '\u2019')
+    .replace(/&lsquo;/g, '\u2018')
+    .replace(/&rdquo;/g, '\u201D')
+    .replace(/&ldquo;/g, '\u201C')
+    .replace(/&#x27;/g, "'")
+    .replace(/&#(\d+);/g, (_, n) => String.fromCharCode(parseInt(n)))
     .replace(/\n{3,}/g, '\n\n')
     .trim();
 
@@ -1523,8 +1552,10 @@ async function fetchArticle(url: string) {
   const response = await fetch(url, {
     headers: {
       'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-      'Accept': 'text/html,application/xhtml+xml',
+      'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+      'Accept-Language': 'en-US,en;q=0.9',
     },
+    redirect: 'follow',
   });
 
   if (!response.ok) throw new Error(`Page returned ${response.status}`);
@@ -1536,13 +1567,42 @@ async function fetchArticle(url: string) {
   const ogDescription = extractMetaContent(html, 'og:description');
   const ogImage = extractMetaContent(html, 'og:image');
   const ogSiteName = extractMetaContent(html, 'og:site_name');
+  const twitterImage = extractMetaContent(html, 'twitter:image');
   const metaAuthor = extractMetaContent(html, 'author');
   const metaDescription = extractMetaContent(html, 'description');
-  const publishedTime = extractMetaContent(html, 'article:published_time');
+  const publishedTime = extractMetaContent(html, 'article:published_time')
+    || extractMetaContent(html, 'datePublished');
+
+  // Substack/Medium-specific author extraction
+  const substackAuthor = html.match(/<meta[^>]*name="author"[^>]*content="([^"]+)"/i)?.[1]
+    || html.match(/"author":\s*\{[^}]*"name":\s*"([^"]+)"/)?.[1];
+
+  // JSON-LD structured data (used by many blog platforms)
+  const jsonLdMatch = html.match(/<script[^>]*type="application\/ld\+json"[^>]*>([\s\S]*?)<\/script>/i);
+  let jsonLdAuthor = '';
+  let jsonLdDate = '';
+  let jsonLdImage = '';
+  if (jsonLdMatch) {
+    try {
+      const ld = JSON.parse(jsonLdMatch[1]);
+      const article = Array.isArray(ld) ? ld.find((item: Record<string, unknown>) => item['@type'] === 'Article' || item['@type'] === 'BlogPosting' || item['@type'] === 'NewsArticle') : ld;
+      if (article) {
+        if (article.author) {
+          jsonLdAuthor = typeof article.author === 'string' ? article.author : (article.author?.name || article.author?.[0]?.name || '');
+        }
+        jsonLdDate = article.datePublished || '';
+        if (article.image) {
+          jsonLdImage = typeof article.image === 'string' ? article.image : (article.image?.url || article.image?.[0] || '');
+        }
+      }
+    } catch {
+      // JSON-LD parsing failed — not critical
+    }
+  }
 
   // Extract <title> tag
   const titleMatch = html.match(/<title[^>]*>([^<]*)<\/title>/i);
-  const htmlTitle = titleMatch?.[1]?.trim() || '';
+  const htmlTitle = (titleMatch?.[1] || '').replace(/\s*[|\-–—]\s*.*$/, '').trim();
 
   const title = ogTitle || htmlTitle || 'Untitled Article';
   const body = extractArticleContent(html);
@@ -1551,12 +1611,34 @@ async function fetchArticle(url: string) {
     throw new Error('Could not extract meaningful content from this page. The page may require JavaScript or authentication.');
   }
 
-  // Determine author from meta, OG, or domain
+  // Determine author — try multiple sources
   const domain = new URL(url).hostname.replace('www.', '');
-  const author = metaAuthor || ogSiteName || domain;
+  const author = substackAuthor || metaAuthor || jsonLdAuthor || ogSiteName || domain;
 
+  // Collect images — OG image, twitter image, JSON-LD image
   const images: string[] = [];
-  if (ogImage) images.push(ogImage);
+  const heroImage = ogImage || twitterImage || jsonLdImage;
+  if (heroImage) images.push(heroImage);
+
+  // Extract inline images from article content (limit to a few high-quality ones)
+  const imgRegex = /<img[^>]+src=["']([^"']+)["'][^>]*>/gi;
+  let imgMatch;
+  const seenImages = new Set(images.map(i => i.toLowerCase()));
+  while ((imgMatch = imgRegex.exec(html)) !== null && images.length < 5) {
+    const src = imgMatch[1];
+    // Skip tiny images, tracking pixels, icons, data URIs
+    if (src.startsWith('data:') || src.includes('pixel') || src.includes('tracking')
+      || src.includes('avatar') || src.includes('icon') || src.includes('logo')
+      || src.includes('badge') || src.includes('1x1') || src.includes('spacer')) continue;
+    // Check for width/height attributes suggesting small images
+    const widthMatch = imgMatch[0].match(/width=["']?(\d+)/i);
+    if (widthMatch && parseInt(widthMatch[1]) < 100) continue;
+    const normalizedSrc = src.toLowerCase();
+    if (!seenImages.has(normalizedSrc)) {
+      seenImages.add(normalizedSrc);
+      images.push(src);
+    }
+  }
 
   return {
     platform: 'article',
@@ -1567,7 +1649,7 @@ async function fetchArticle(url: string) {
     metadata: {
       description: ogDescription || metaDescription || null,
       siteName: ogSiteName || domain,
-      publishedTime: publishedTime || null,
+      publishedTime: publishedTime || jsonLdDate || null,
     },
   };
 }
