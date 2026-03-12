@@ -2,7 +2,8 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
-import { getProjects, getCaptures, getAllCaptures, getProjectMap, createProject, deleteProject, ensureInbox, addCapture, findCaptureByUrl, getUniqueContentTag, retagAllCaptures, INBOX_PROJECT_ID, type Project, type Capture } from '@/lib/db';
+import { getProjects, getCaptures, getAllCaptures, getProjectMap, createProject, deleteProject, ensureInbox, addCapture, findCaptureByUrl, getUniqueContentTag, type Project, type Capture } from '@/lib/db';
+import UserMenu from '@/components/UserMenu';
 
 interface ProjectWithCover extends Project {
   coverImage?: string;
@@ -75,9 +76,6 @@ export default function Home() {
       // Ensure Inbox exists
       await ensureInbox();
 
-      // Re-tag existing captures with latest detection logic
-      await retagAllCaptures();
-
       const p = await getProjects();
       // Enrich all projects with cover images, latest title, platform info
       const enriched: ProjectWithCover[] = await Promise.all(
@@ -96,8 +94,8 @@ export default function Home() {
       );
 
       // Separate Inbox from regular projects
-      const inbox = enriched.find(p => p.id === INBOX_PROJECT_ID) || null;
-      const regular = enriched.filter(p => p.id !== INBOX_PROJECT_ID);
+      const inbox = enriched.find(p => p.is_inbox) || null;
+      const regular = enriched.filter(p => !p.is_inbox);
 
       setInboxProject(inbox);
       setProjects(regular);
@@ -180,8 +178,9 @@ export default function Home() {
       }
 
       const data = await response.json();
+      const inbox = await ensureInbox();
       await addCapture(
-        INBOX_PROJECT_ID,
+        inbox.id,
         url,
         data.title || url,
         data.body || '',
@@ -262,16 +261,19 @@ export default function Home() {
             {regularProjectCount} project{regularProjectCount !== 1 ? 's' : ''}
           </p>
         </div>
-        <button
-          onClick={() => setShowCreate(true)}
-          className="flex items-center gap-1.5 px-5 py-2.5 rounded-full text-sm font-semibold transition-all active:scale-95"
-          style={{ background: 'var(--accent)', color: 'var(--bg)' }}
-        >
-          <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-            <path d="M8 3v10M3 8h10" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
-          </svg>
-          New Project
-        </button>
+        <div className="flex items-center gap-3">
+          <button
+            onClick={() => setShowCreate(true)}
+            className="flex items-center gap-1.5 px-5 py-2.5 rounded-full text-sm font-semibold transition-all active:scale-95"
+            style={{ background: 'var(--accent)', color: 'var(--bg)' }}
+          >
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+              <path d="M8 3v10M3 8h10" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+            </svg>
+            New Project
+          </button>
+          <UserMenu />
+        </div>
       </header>
 
       {/* Create Modal */}
@@ -410,7 +412,7 @@ export default function Home() {
             {inboxProject && (
               <div
                 className="inbox-card rounded-2xl p-4 cursor-pointer mb-6"
-                onClick={() => router.push(`/project/${INBOX_PROJECT_ID}`)}
+                onClick={() => inboxProject && router.push(`/project/${inboxProject.id}`)}
               >
                 <div className="flex items-center gap-3">
                   <div className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0" style={{ background: 'var(--accent-dim)' }}>
