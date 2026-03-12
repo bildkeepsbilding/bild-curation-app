@@ -1,6 +1,7 @@
 // ── Config ──
 const DEFAULT_APP_URL = 'https://bild-curation-app.vercel.app';
-const REQUEST_TIMEOUT_MS = 15000;
+const SIGN_IN_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
+const TOKEN_REFRESH_BUFFER_S = 60; // Refresh if within 60s of expiry
 
 // ── DOM refs ──
 const stateLoading = document.getElementById('state-loading');
@@ -19,8 +20,8 @@ const successText = document.getElementById('success-text');
 const errorMessage = document.getElementById('error-message');
 const retryBtn = document.getElementById('retry-btn');
 const settingsLink = document.getElementById('settings-link');
-const openAppBtn = document.getElementById('open-app-btn');
-const retrySigninBtn = document.getElementById('retry-signin-btn');
+const signinBtn = document.getElementById('signin-btn');
+const signoutLink = document.getElementById('signout-link');
 
 // ── State ──
 let appUrl = DEFAULT_APP_URL;
@@ -39,6 +40,11 @@ function setState(name) {
   });
   const el = document.getElementById(`state-${name}`);
   if (el) el.classList.add('active');
+
+  // Show/hide sign-out link based on auth state
+  if (signoutLink) {
+    signoutLink.style.display = (name === 'ready' || name === 'sifting' || name === 'success') ? 'inline' : 'none';
+  }
 }
 
 function detectPlatform(url) {
@@ -85,58 +91,193 @@ async function supabasePost(table, data) {
   return res.json();
 }
 
-// ── Cookie-based auth ──
+// ── Token storage (chrome.storage.local) ──
 
-async function getSessionFromCookies() {
+async function getSessionFromStorage() {
   try {
-    const domain = new URL(appUrl).hostname;
-    const cookies = await chrome.cookies.getAll({ domain });
+    const stored = await chrome.storage.local.get(['access_token', 'refresh_token', 'expires_at']);
 
-    // Find Supabase auth token cookies (may be chunked: sb-{ref}-auth-token.0, .1, ...)
-    const authCookies = cookies
-      .filter(c => c.name.startsWith('sb-') && c.name.includes('-auth-token'))
-      .sort((a, b) => a.name.localeCompare(b.name));
+    if (!stored.access_token || !stored.refresh_token) return null;
 
-    if (authCookies.length === 0) return null;
-
-    // Check for single vs chunked cookies
-    const baseCookie = authCookies.find(c => !c.name.match(/\.\d+$/));
-    let tokenStr;
-
-    if (baseCookie && authCookies.length === 1) {
-      // Single cookie
-      tokenStr = baseCookie.value;
-    } else {
-      // Chunked: take only the numbered chunks (.0, .1, etc.) in order
-      const chunks = authCookies
-        .filter(c => c.name.match(/\.\d+$/))
-        .sort((a, b) => {
-          const numA = parseInt(a.name.match(/\.(\d+)$/)[1]);
-          const numB = parseInt(b.name.match(/\.(\d+)$/)[1]);
-          return numA - numB;
-        });
-      tokenStr = chunks.length > 0
-        ? chunks.map(c => c.value).join('')
-        : (baseCookie ? baseCookie.value : authCookies[0].value);
+    // Check if token is expired or about to expire
+    const now = Math.floor(Date.now() / 1000);
+    if (stored.expires_at && stored.expires_at < now + TOKEN_REFRESH_BUFFER_S) {
+      // Token expired or about to expire — try to refresh
+      const refreshed = await refreshAccessToken(stored.refresh_token);
+      if (!refreshed) return null;
+      return refreshed;
     }
 
-    // Decode — cookie value may be URL-encoded JSON
-    const decoded = decodeURIComponent(tokenStr);
-    const session = JSON.parse(decoded);
-
-    // Validate: must have access_token
-    if (!session || !session.access_token) return null;
-
-    // Check expiry
-    if (session.expires_at && session.expires_at < Math.floor(Date.now() / 1000)) {
-      return null; // Expired
-    }
-
-    return session;
+    return {
+      access_token: stored.access_token,
+      refresh_token: stored.refresh_token,
+      expires_at: stored.expires_at,
+    };
   } catch (e) {
-    console.warn('Failed to read session cookies:', e);
+    console.warn('Failed to read session from storage:', e);
     return null;
   }
+}
+
+async function storeSession(session) {
+  await chrome.storage.local.set({
+    access_token: session.access_token,
+    refresh_token: session.refresh_token,
+    expires_at: session.expires_at,
+  });
+}
+
+async function clearSession() {
+  await chrome.storage.local.remove(['access_token', 'refresh_token', 'expires_at']);
+}
+
+// ── Token refresh ──
+
+async function refreshAccessToken(refreshToken) {
+  try {
+    const res = await fetch(`${supabaseUrl}/auth/v1/token?grant_type=refresh_token`, {
+      method: 'POST',
+      headers: {
+        'apikey': supabaseAnonKey,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ refresh_token: refreshToken }),
+    });
+
+    if (!res.ok) {
+      // Refresh failed — session is invalid
+      await clearSession();
+      return null;
+    }
+
+    const data = await res.json();
+
+    if (!data.access_token) {
+      await clearSession();
+      return null;
+    }
+
+    const session = {
+      access_token: data.access_token,
+      refresh_token: data.refresh_token,
+      expires_at: data.expires_at,
+    };
+
+    await storeSession(session);
+    return session;
+  } catch (e) {
+    console.warn('Token refresh failed:', e);
+    await clearSession();
+    return null;
+  }
+}
+
+// ── Sign-in flow via tab ──
+
+function startSignInFlow() {
+  const loginUrl = `${appUrl}/login?extension=true`;
+  let signInTabId = null;
+  let timeoutId = null;
+
+  function cleanup() {
+    chrome.tabs.onUpdated.removeListener(onTabUpdated);
+    chrome.tabs.onRemoved.removeListener(onTabRemoved);
+    if (timeoutId) clearTimeout(timeoutId);
+  }
+
+  function onTabRemoved(tabId) {
+    if (tabId === signInTabId) {
+      // User closed the tab before completing sign-in
+      cleanup();
+      signInTabId = null;
+    }
+  }
+
+  async function onTabUpdated(tabId, changeInfo) {
+    if (tabId !== signInTabId || !changeInfo.url) return;
+
+    // Check if the tab navigated to the auth success page
+    if (!changeInfo.url.includes('/extension/auth-success')) return;
+
+    // Wait a moment for the page to render the session data
+    setTimeout(async () => {
+      try {
+        const results = await chrome.scripting.executeScript({
+          target: { tabId: signInTabId },
+          func: () => {
+            const el = document.getElementById('extension-session-data');
+            if (!el) return null;
+            return {
+              session: el.dataset.session,
+              status: el.dataset.status,
+            };
+          },
+        });
+
+        const result = results?.[0]?.result;
+
+        if (!result || result.status !== 'success' || !result.session) {
+          // Page hasn't loaded yet or errored — try again in a bit
+          if (result && result.status === 'loading') {
+            // Still loading, will be called again on next update
+            return;
+          }
+          cleanup();
+          try { chrome.tabs.remove(signInTabId); } catch {}
+          showError('Failed to read session from the sign-in page. Please try again.');
+          return;
+        }
+
+        const session = JSON.parse(result.session);
+
+        if (!session.access_token) {
+          cleanup();
+          try { chrome.tabs.remove(signInTabId); } catch {}
+          showError('No access token received. Please try again.');
+          return;
+        }
+
+        // Store the session
+        await storeSession(session);
+
+        cleanup();
+        try { chrome.tabs.remove(signInTabId); } catch {}
+
+        // Re-initialize with the new session
+        init();
+      } catch (e) {
+        console.warn('Failed to read session from tab:', e);
+        cleanup();
+        try { chrome.tabs.remove(signInTabId); } catch {}
+        showError('Failed to connect. Make sure you completed sign-in and try again.');
+      }
+    }, 1500); // Wait 1.5s for React to render
+  }
+
+  // Open login tab
+  chrome.tabs.create({ url: loginUrl }, (tab) => {
+    signInTabId = tab.id;
+
+    // Listen for tab URL changes and tab closure
+    chrome.tabs.onUpdated.addListener(onTabUpdated);
+    chrome.tabs.onRemoved.addListener(onTabRemoved);
+
+    // Timeout after 5 minutes
+    timeoutId = setTimeout(() => {
+      cleanup();
+      // Don't close the tab — user might still be working on it
+      signInTabId = null;
+    }, SIGN_IN_TIMEOUT_MS);
+  });
+}
+
+// ── Sign out ──
+
+async function handleSignOut() {
+  await clearSession();
+  accessToken = '';
+  userId = '';
+  setState('signin');
 }
 
 // ── Initialization ──
@@ -165,13 +306,13 @@ async function init() {
 
   // Wire up static buttons
   settingsLink.addEventListener('click', () => chrome.runtime.openOptionsPage());
-  openAppBtn.addEventListener('click', () => {
-    chrome.tabs.create({ url: appUrl });
-  });
-  retrySigninBtn.addEventListener('click', () => {
-    setState('loading');
-    init();
-  });
+  signinBtn.addEventListener('click', startSignInFlow);
+  if (signoutLink) {
+    signoutLink.addEventListener('click', (e) => {
+      e.preventDefault();
+      handleSignOut();
+    });
+  }
 
   setState('loading');
 
@@ -191,8 +332,8 @@ async function init() {
     return;
   }
 
-  // Step 2: Read auth session from cookies
-  const session = await getSessionFromCookies();
+  // Step 2: Read auth session from chrome.storage.local
+  const session = await getSessionFromStorage();
 
   if (!session) {
     setState('signin');
@@ -207,6 +348,7 @@ async function init() {
     userId = payload.sub;
   } catch (e) {
     console.warn('Failed to decode JWT:', e);
+    await clearSession();
     setState('signin');
     return;
   }
@@ -271,8 +413,9 @@ async function onAuthenticated() {
 
     setState('ready');
   } catch (e) {
-    // Auth might have expired between cookie read and API call
+    // Auth might have expired between storage read and API call
     if (e.message.includes('401') || e.message.includes('403')) {
+      await clearSession();
       setState('signin');
     } else {
       showError('Failed to load projects: ' + e.message);

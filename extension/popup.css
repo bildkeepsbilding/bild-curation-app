@@ -346,12 +346,17 @@ textarea::placeholder {
   background: var(--bg-hover);
 }
 
-/* Settings link */
+/* Footer */
 .footer {
   padding: 8px 16px 12px;
   border-top: 1px solid var(--border-subtle);
   display: flex;
   justify-content: flex-end;
+  gap: 12px;
+}
+
+.footer-spacer {
+  flex: 1;
 }
 
 .settings-link {

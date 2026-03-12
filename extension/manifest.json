@@ -3,9 +3,10 @@
   "name": "Bild – Sift the Web for Claude",
   "version": "1.1.0",
   "description": "Capture any page to your Bild curation app directly from the browser toolbar.",
-  "permissions": ["activeTab", "storage", "cookies"],
+  "permissions": ["activeTab", "storage", "scripting", "tabs"],
   "host_permissions": [
     "https://*.vercel.app/*",
+    "https://*.supabase.co/*",
     "http://localhost:*/*",
     "http://127.0.0.1:*/*"
   ],
