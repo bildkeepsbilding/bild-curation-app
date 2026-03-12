@@ -914,7 +914,8 @@ export default function ProjectPage() {
               </div>
             )}
             {filteredCaptures.map((capture) => {
-              const hasImage = capture.images && capture.images.length > 0 && capture.platform !== 'github';
+              const hasOgImage = capture.platform === 'article' ? !!(capture.metadata as Record<string, unknown>)?.hasOgImage : true;
+              const hasImage = capture.images && capture.images.length > 0 && capture.platform !== 'github' && hasOgImage;
               const bodyPreview = cleanBody(capture.body.split('\n---')[0]);
               const isEditing = editingCapture === capture.id;
               return (
@@ -987,7 +988,7 @@ export default function ProjectPage() {
                     {hasImage ? (
                       <div className="relative w-full" style={{ height: '160px' }}>
                         <img src={capture.images[0]} alt="" className="w-full h-full object-cover" loading="lazy" referrerPolicy="no-referrer" onError={(e) => { const parent = (e.target as HTMLImageElement).closest('.relative') as HTMLElement | null; if (parent) parent.style.display = 'none'; }} />
-                        <div className="absolute inset-0" style={{ background: 'linear-gradient(to top, var(--bg-elevated) 0%, transparent 60%)' }} />
+                        <div className="absolute inset-0" style={{ background: 'linear-gradient(to top, var(--bg-elevated) 0%, rgba(0,0,0,0.4) 60%, rgba(0,0,0,0.15) 100%)' }} />
                         <div className="absolute top-3 left-3 flex items-center gap-1">
                           <span className="px-2 py-0.5 rounded-md text-[11px] font-semibold" style={{ background: PLATFORM_LABELS[capture.platform]?.color + 'dd', color: '#fff', backdropFilter: 'blur(4px)' }}>
                             {PLATFORM_LABELS[capture.platform]?.label}
@@ -1107,8 +1108,8 @@ export default function ProjectPage() {
                         </h3>
                       )}
 
-                      <p className="text-xs mb-3 line-clamp-3" style={{ color: 'var(--text-tertiary)', lineHeight: 1.5 }}>
-                        {truncate(bodyPreview, 160)}
+                      <p className="text-xs mb-3 line-clamp-2" style={{ color: 'var(--text-tertiary)', lineHeight: 1.5 }}>
+                        {truncate(bodyPreview, 120)}
                       </p>
 
                       <div className="flex items-center justify-between">
@@ -1128,7 +1129,12 @@ export default function ProjectPage() {
                           style={{ background: 'var(--bg)', border: '1px solid var(--border)', color: 'var(--text-primary)', lineHeight: 1.5 }}
                         />
                       ) : capture.note ? (
-                        <p className="text-[10px] mt-2 px-2 py-1 rounded-lg truncate" style={{ background: 'var(--accent-dim)', color: 'var(--accent)' }}>🧠 {truncate(capture.note, 50)}</p>
+                        <div className="flex items-center gap-1.5 mt-2">
+                          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" className="flex-shrink-0" style={{ color: 'var(--text-tertiary)', opacity: 0.6 }}>
+                            <path d="M15.232 5.232l3.536 3.536M9 13l-2 2v3h3l9-9a2.5 2.5 0 00-3.536-3.536L9 13z" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                          </svg>
+                          <span className="text-[10px] truncate" style={{ color: 'var(--text-tertiary)', opacity: 0.7 }}>{truncate(capture.note, 60)}</span>
+                        </div>
                       ) : null}
                     </div>
                   </button>
