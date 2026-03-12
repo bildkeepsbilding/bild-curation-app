@@ -1,5 +1,5 @@
 import jsPDF from 'jspdf';
-import { type Project, type Capture, type Platform, formatEngagement, PLATFORM_DISPLAY } from './db';
+import { type Project, type Capture, type Platform, formatEngagement, PLATFORM_DISPLAY, detectContentTag } from './db';
 
 // ── Layout constants ──
 
@@ -231,11 +231,13 @@ function renderCaptureSection(
   // Add page break if not much space left for a new capture header
   y = ensureSpace(doc, y, 40);
 
-  // Platform badge
+  // Platform badge + content tag
   const platformLabel = PLATFORM_DISPLAY[c.platform] || c.platform;
   const badgeColor = PLATFORM_COLORS[c.platform] || PLATFORM_COLORS.other;
   const badge = drawBadge(doc, platformLabel, MARGIN, y, badgeColor);
-  y = badge.endY + 4;
+  const contentTag = c.contentTag || detectContentTag(c);
+  const tagBadge = drawBadge(doc, contentTag, badge.endX, y, [100, 100, 110]);
+  y = tagBadge.endY + 4;
 
   // Title
   y = drawText(doc, c.title, MARGIN, y, { fontSize: 16, fontStyle: 'bold', color: [17, 17, 17] });

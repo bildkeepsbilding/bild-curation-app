@@ -28,6 +28,7 @@ export interface Capture {
   tags: string[];
   createdAt: number;
   sortOrder?: number;
+  contentTag?: string;
 }
 
 function generateId(): string {
@@ -176,11 +177,12 @@ export async function addCapture(
   tags: string[] = []
 ): Promise<Capture> {
   const db = await openDB();
+  const platform = detectPlatform(url);
   const capture: Capture = {
     id: generateId(),
     projectId,
     url,
-    platform: detectPlatform(url),
+    platform,
     title,
     body,
     author,
@@ -189,6 +191,7 @@ export async function addCapture(
     note,
     tags,
     createdAt: Date.now(),
+    contentTag: detectContentTag({ platform, title, body }),
   };
   return new Promise((resolve, reject) => {
     const tx = db.transaction('captures', 'readwrite');
@@ -397,6 +400,70 @@ export function detectContentType(c: Capture): string {
   return 'other';
 }
 
+// Auto-detect content tag for display
+export function detectContentTag(c: { platform: Platform; title: string; body: string }): string {
+  if (c.platform === 'reddit') return 'Discussion';
+  if (c.platform === 'twitter') return 'Thread';
+  if (c.platform === 'github') return 'Repository';
+
+  // Article platform — check for Tutorial heuristics
+  const titleLower = (c.title || '').toLowerCase();
+  const bodyLower = (c.body || '').toLowerCase();
+
+  const tutorialKeywords = /\b(how to|step[- ]by[- ]step|guide|tutorial|walkthrough|getting started)\b/i;
+  if (tutorialKeywords.test(titleLower) || tutorialKeywords.test(bodyLower.slice(0, 500))) {
+    return 'Tutorial';
+  }
+
+  // Count numbered list items as tutorial signal
+  const numberedSteps = (c.body || '').match(/^\s*\d+\.\s+/gm);
+  if (numberedSteps && numberedSteps.length >= 3) {
+    return 'Tutorial';
+  }
+
+  // Opinion heuristic — first-person perspective markers
+  const opinionMarkers = /\b(I think|I believe|in my opinion|in my experience|my take|I feel|I argue|my view)\b/i;
+  if (opinionMarkers.test(bodyLower.slice(0, 1000))) {
+    return 'Opinion';
+  }
+
+  return 'Article';
+}
+
+// Normalize URL for duplicate comparison
+export function normalizeUrl(url: string): string {
+  try {
+    const u = new URL(url);
+    // Normalize to https
+    u.protocol = 'https:';
+    // Remove www.
+    u.hostname = u.hostname.replace(/^www\./, '');
+    // Remove tracking params
+    const trackingParams = ['utm_source', 'utm_medium', 'utm_campaign', 'utm_term', 'utm_content', 'ref', 'fbclid', 'gclid'];
+    for (const p of trackingParams) {
+      u.searchParams.delete(p);
+    }
+    // Remove trailing slash
+    let path = u.pathname.replace(/\/+$/, '') || '/';
+    return `${u.protocol}//${u.hostname}${path}${u.search}${u.hash}`.replace(/\/$/, '');
+  } catch {
+    return url.toLowerCase().replace(/\/+$/, '');
+  }
+}
+
+// Find existing capture by URL (for duplicate detection)
+export async function findCaptureByUrl(url: string): Promise<{ capture: Capture; project: Project } | null> {
+  const normalized = normalizeUrl(url);
+  const captures = await getAllCaptures();
+  for (const c of captures) {
+    if (normalizeUrl(c.url) === normalized) {
+      const project = await getProject(c.projectId);
+      if (project) return { capture: c, project };
+    }
+  }
+  return null;
+}
+
 // Platform display labels for export
 export const PLATFORM_DISPLAY: Record<string, string> = {
   twitter: 'X (Twitter)',
@@ -433,7 +500,7 @@ export async function exportProjectAsMarkdown(projectId: string, filterPlatform?
     md += `date: ${new Date(c.createdAt).toISOString().split('T')[0]}\n`;
     const engagement = formatEngagement(c);
     if (engagement) md += `engagement: ${engagement}\n`;
-    md += `content_type: ${detectContentType(c)}\n`;
+    md += `content_type: ${c.contentTag || detectContentTag(c)}\n`;
     md += `url: ${c.url}\n`;
     if (c.note) md += `context_for_claude: ${c.note}\n`;
     md += `---\n\n`;

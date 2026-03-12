@@ -14,6 +14,8 @@ import {
   moveCapture,
   copyCapture,
   reorderCapture,
+  findCaptureByUrl,
+  detectContentTag,
   INBOX_PROJECT_ID,
   type Project,
   type Capture,
@@ -68,6 +70,7 @@ export default function ProjectPage() {
   const [confirmDeleteProject, setConfirmDeleteProject] = useState(false);
   const [copyTarget, setCopyTarget] = useState<Capture | null>(null);
   const [copyProjects, setCopyProjects] = useState<Project[]>([]);
+  const [duplicateInfo, setDuplicateInfo] = useState<{ capture: Capture; project: Project } | null>(null);
   const urlInputRef = useRef<HTMLInputElement>(null);
   const projectNameInputRef = useRef<HTMLInputElement>(null);
   const noteInputRef = useRef<HTMLTextAreaElement>(null);
@@ -111,8 +114,26 @@ export default function ProjectPage() {
     platformCounts[c.platform] = (platformCounts[c.platform] || 0) + 1;
   }
 
-  async function handleFetchUrl() {
+  async function handleCheckDuplicate() {
     const url = urlInput.trim();
+    if (!url) return;
+    setDuplicateInfo(null);
+    try {
+      const dup = await findCaptureByUrl(url);
+      if (dup) {
+        setDuplicateInfo(dup);
+        return;
+      }
+    } catch { /* ignore */ }
+    await doFetchUrl(url);
+  }
+
+  async function handleCaptureAnyway() {
+    setDuplicateInfo(null);
+    await doFetchUrl(urlInput.trim());
+  }
+
+  async function doFetchUrl(url: string) {
     if (!url) return;
     setFetching(true);
     setFetchError('');
@@ -688,12 +709,23 @@ export default function ProjectPage() {
       {/* ── URL Input ── */}
       <div className="px-5 mb-4">
         <div className="flex gap-2">
-          <input ref={urlInputRef} type="url" value={urlInput} onChange={(e) => { setUrlInput(e.target.value); setFetchError(''); }} onKeyDown={(e) => e.key === 'Enter' && handleFetchUrl()} placeholder="Paste any URL (Reddit, X, GitHub, articles...)" className="flex-1 px-4 py-3 rounded-xl text-sm outline-none" style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border)', color: 'var(--text-primary)' }} disabled={fetching} />
-          <button onClick={handleFetchUrl} disabled={!urlInput.trim() || fetching} className="px-5 py-3 rounded-xl text-sm font-semibold active:scale-95 disabled:opacity-30" style={{ background: 'var(--accent)', color: 'var(--bg)' }}>
+          <input ref={urlInputRef} type="url" value={urlInput} onChange={(e) => { setUrlInput(e.target.value); setFetchError(''); setDuplicateInfo(null); }} onKeyDown={(e) => e.key === 'Enter' && handleCheckDuplicate()} placeholder="Paste any URL (Reddit, X, GitHub, articles...)" className="flex-1 px-4 py-3 rounded-xl text-sm outline-none" style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border)', color: 'var(--text-primary)' }} disabled={fetching} />
+          <button onClick={handleCheckDuplicate} disabled={!urlInput.trim() || fetching} className="px-5 py-3 rounded-xl text-sm font-semibold active:scale-95 disabled:opacity-30" style={{ background: 'var(--accent)', color: 'var(--bg)' }}>
             {fetching ? <div className="w-4 h-4 rounded-full border-2 animate-spin" style={{ borderColor: 'var(--bg)', borderTopColor: 'transparent' }} /> : 'Capture'}
           </button>
         </div>
         {fetchError && <p className="text-xs mt-2 px-1" style={{ color: 'var(--danger)' }}>{fetchError}</p>}
+        {duplicateInfo && (
+          <div className="mt-2 px-3 py-2.5 rounded-xl text-xs flex items-center justify-between gap-3" style={{ background: 'var(--accent-dim)', border: '1px solid var(--accent)40' }}>
+            <span style={{ color: 'var(--accent)' }}>
+              Already captured in <strong>{duplicateInfo.project.name}</strong>
+            </span>
+            <div className="flex items-center gap-2 flex-shrink-0">
+              <button onClick={() => router.push(`/project/${duplicateInfo.project.id}`)} className="px-2.5 py-1 rounded-lg font-medium" style={{ background: 'var(--bg)', color: 'var(--text-secondary)', border: '1px solid var(--border)' }}>Go to existing</button>
+              <button onClick={handleCaptureAnyway} className="px-2.5 py-1 rounded-lg font-semibold" style={{ background: 'var(--accent)', color: 'var(--bg)' }}>Capture anyway</button>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* ── Platform Filter Tabs ── */}
@@ -818,18 +850,28 @@ export default function ProjectPage() {
                       <div className="relative w-full" style={{ height: '160px' }}>
                         <img src={capture.images[0]} alt="" className="w-full h-full object-cover" loading="lazy" referrerPolicy="no-referrer" onError={(e) => { const parent = (e.target as HTMLImageElement).closest('.relative') as HTMLElement | null; if (parent) parent.style.display = 'none'; }} />
                         <div className="absolute inset-0" style={{ background: 'linear-gradient(to top, var(--bg-elevated) 0%, transparent 60%)' }} />
-                        <span className="absolute top-3 left-3 px-2 py-0.5 rounded-md text-[10px] font-semibold" style={{ background: PLATFORM_LABELS[capture.platform]?.color + 'dd', color: '#fff', backdropFilter: 'blur(4px)' }}>
-                          {PLATFORM_LABELS[capture.platform]?.label}
-                        </span>
+                        <div className="absolute top-3 left-3 flex items-center gap-1">
+                          <span className="px-2 py-0.5 rounded-md text-[10px] font-semibold" style={{ background: PLATFORM_LABELS[capture.platform]?.color + 'dd', color: '#fff', backdropFilter: 'blur(4px)' }}>
+                            {PLATFORM_LABELS[capture.platform]?.label}
+                          </span>
+                          <span className="px-1.5 py-0.5 rounded-md text-[10px] font-medium" style={{ background: 'rgba(0,0,0,0.5)', color: 'rgba(255,255,255,0.7)', backdropFilter: 'blur(4px)' }}>
+                            {capture.contentTag || detectContentTag(capture)}
+                          </span>
+                        </div>
                       </div>
                     )}
 
                     <div className="p-4" style={{ marginTop: hasImage ? '-24px' : '0', position: 'relative' }}>
                       {!hasImage && (
-                        <div className="mb-2">
+                        <div className="mb-2 flex items-center gap-1.5">
                           <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold" style={{ background: PLATFORM_LABELS[capture.platform]?.color + '20', color: PLATFORM_LABELS[capture.platform]?.color }}>
                             {PLATFORM_LABELS[capture.platform]?.label}
                           </span>
+                          {(capture.contentTag || detectContentTag(capture)) && (
+                            <span className="px-1.5 py-0.5 rounded text-[10px] font-medium" style={{ background: 'var(--bg-hover)', color: 'var(--text-tertiary)' }}>
+                              {capture.contentTag || detectContentTag(capture)}
+                            </span>
+                          )}
                         </div>
                       )}
 
