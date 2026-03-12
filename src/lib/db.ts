@@ -1,7 +1,4 @@
-const DB_NAME = 'curation-app';
-const DB_VERSION = 3;
-
-export const INBOX_PROJECT_ID = '__inbox__';
+import { createClient } from '@/lib/supabase/client';
 
 export type Platform = 'reddit' | 'twitter' | 'github' | 'article' | 'other';
 
@@ -9,6 +6,7 @@ export interface Project {
   id: string;
   name: string;
   brief: string;
+  is_inbox: boolean;
   createdAt: number;
   updatedAt: number;
   captureCount: number;
@@ -31,139 +29,176 @@ export interface Capture {
   contentTag?: string;
 }
 
-function generateId(): string {
-  return Date.now().toString(36) + Math.random().toString(36).slice(2);
+// --- Row-to-model conversion helpers ---
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function rowToProject(row: any, captureCount: number = 0): Project {
+  return {
+    id: row.id,
+    name: row.name,
+    brief: row.brief || '',
+    is_inbox: row.is_inbox || false,
+    createdAt: new Date(row.created_at).getTime(),
+    updatedAt: new Date(row.updated_at).getTime(),
+    captureCount,
+  };
 }
 
-function detectPlatform(url: string): Platform {
-  if (url.includes('reddit.com') || url.includes('redd.it')) return 'reddit';
-  if (url.includes('twitter.com') || url.includes('x.com')) return 'twitter';
-  if (url.includes('github.com')) return 'github';
-  return 'article';
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function rowToCapture(row: any): Capture {
+  return {
+    id: row.id,
+    projectId: row.project_id,
+    url: row.url || '',
+    platform: (row.platform || 'other') as Platform,
+    title: row.title || '',
+    body: row.body || '',
+    author: row.author || '',
+    images: row.images || [],
+    metadata: row.metadata || {},
+    note: row.note || '',
+    tags: [],
+    createdAt: new Date(row.created_at).getTime(),
+    sortOrder: row.sort_order,
+    contentTag: row.content_tag || undefined,
+  };
 }
 
-function openDB(): Promise<IDBDatabase> {
-  return new Promise((resolve, reject) => {
-    const request = indexedDB.open(DB_NAME, DB_VERSION);
+// --- Auth helper ---
 
-    request.onupgradeneeded = (event) => {
-      const db = (event.target as IDBOpenDBRequest).result;
-
-      if (!db.objectStoreNames.contains('projects')) {
-        db.createObjectStore('projects', { keyPath: 'id' });
-      }
-
-      if (db.objectStoreNames.contains('screenshots')) {
-        db.deleteObjectStore('screenshots');
-      }
-      if (db.objectStoreNames.contains('captures')) {
-        db.deleteObjectStore('captures');
-      }
-
-      const store = db.createObjectStore('captures', { keyPath: 'id' });
-      store.createIndex('projectId', 'projectId', { unique: false });
-      store.createIndex('createdAt', 'createdAt', { unique: false });
-      store.createIndex('platform', 'platform', { unique: false });
-    };
-
-    request.onsuccess = () => resolve(request.result);
-    request.onerror = () => reject(request.error);
-  });
+async function getUserId(): Promise<string> {
+  const supabase = createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) throw new Error('Not authenticated');
+  return user.id;
 }
+
+// --- Project functions ---
 
 export async function createProject(name: string, brief: string = ''): Promise<Project> {
-  const db = await openDB();
-  const project: Project = {
-    id: generateId(),
-    name,
-    brief,
-    createdAt: Date.now(),
-    updatedAt: Date.now(),
-    captureCount: 0,
-  };
-  return new Promise((resolve, reject) => {
-    const tx = db.transaction('projects', 'readwrite');
-    tx.objectStore('projects').add(project);
-    tx.oncomplete = () => resolve(project);
-    tx.onerror = () => reject(tx.error);
-  });
+  const supabase = createClient();
+  const userId = await getUserId();
+
+  const { data, error } = await supabase
+    .from('projects')
+    .insert({ user_id: userId, name, brief })
+    .select()
+    .single();
+
+  if (error) throw error;
+  return rowToProject(data, 0);
 }
 
 export async function getProjects(): Promise<Project[]> {
-  const db = await openDB();
-  return new Promise((resolve, reject) => {
-    const tx = db.transaction('projects', 'readonly');
-    const request = tx.objectStore('projects').getAll();
-    request.onsuccess = () => {
-      const projects = request.result as Project[];
-      projects.sort((a, b) => b.updatedAt - a.updatedAt);
-      resolve(projects);
-    };
-    request.onerror = () => reject(request.error);
+  const supabase = createClient();
+
+  const { data, error } = await supabase
+    .from('projects')
+    .select('*, captures(count)')
+    .order('updated_at', { ascending: false });
+
+  if (error) throw error;
+
+  return (data || []).map((row) => {
+    const count = row.captures?.[0]?.count ?? 0;
+    return rowToProject(row, count);
   });
 }
 
 export async function getProject(id: string): Promise<Project | null> {
-  const db = await openDB();
-  return new Promise((resolve, reject) => {
-    const tx = db.transaction('projects', 'readonly');
-    const request = tx.objectStore('projects').get(id);
-    request.onsuccess = () => resolve(request.result || null);
-    request.onerror = () => reject(request.error);
-  });
+  const supabase = createClient();
+
+  const { data, error } = await supabase
+    .from('projects')
+    .select('*, captures(count)')
+    .eq('id', id)
+    .single();
+
+  if (error) {
+    if (error.code === 'PGRST116') return null; // not found
+    throw error;
+  }
+
+  const count = data.captures?.[0]?.count ?? 0;
+  return rowToProject(data, count);
 }
 
 export async function updateProject(id: string, updates: Partial<Project>): Promise<void> {
-  const db = await openDB();
+  const supabase = createClient();
+
+  // Check if it's the inbox — prevent renaming
   const project = await getProject(id);
   if (!project) return;
-  // Prevent renaming the Inbox
-  if (id === INBOX_PROJECT_ID) {
-    delete updates.name;
-  }
-  return new Promise((resolve, reject) => {
-    const tx = db.transaction('projects', 'readwrite');
-    tx.objectStore('projects').put({ ...project, ...updates, updatedAt: Date.now() });
-    tx.oncomplete = () => resolve();
-    tx.onerror = () => reject(tx.error);
-  });
+
+  // Build the DB update object
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const dbUpdates: Record<string, any> = {};
+  if (updates.name !== undefined && !project.is_inbox) dbUpdates.name = updates.name;
+  if (updates.brief !== undefined) dbUpdates.brief = updates.brief;
+
+  if (Object.keys(dbUpdates).length === 0) return;
+
+  const { error } = await supabase
+    .from('projects')
+    .update(dbUpdates)
+    .eq('id', id);
+
+  if (error) throw error;
 }
 
 export async function deleteProject(id: string): Promise<void> {
-  if (id === INBOX_PROJECT_ID) return; // Inbox cannot be deleted
-  const db = await openDB();
-  const captures = await getCaptures(id);
-  return new Promise((resolve, reject) => {
-    const tx = db.transaction(['projects', 'captures'], 'readwrite');
-    tx.objectStore('projects').delete(id);
-    for (const c of captures) {
-      tx.objectStore('captures').delete(c.id);
-    }
-    tx.oncomplete = () => resolve();
-    tx.onerror = () => reject(tx.error);
-  });
+  const supabase = createClient();
+
+  // Don't delete inbox
+  const project = await getProject(id);
+  if (!project || project.is_inbox) return;
+
+  // Captures auto-deleted via ON DELETE CASCADE
+  const { error } = await supabase
+    .from('projects')
+    .delete()
+    .eq('id', id);
+
+  if (error) throw error;
 }
 
 export async function ensureInbox(): Promise<Project> {
-  const existing = await getProject(INBOX_PROJECT_ID);
-  if (existing) return existing;
+  const supabase = createClient();
+  const userId = await getUserId();
 
-  const db = await openDB();
-  const inbox: Project = {
-    id: INBOX_PROJECT_ID,
-    name: 'Inbox',
-    brief: '',
-    createdAt: Date.now(),
-    updatedAt: Date.now(),
-    captureCount: 0,
-  };
-  return new Promise((resolve, reject) => {
-    const tx = db.transaction('projects', 'readwrite');
-    tx.objectStore('projects').put(inbox);
-    tx.oncomplete = () => resolve(inbox);
-    tx.onerror = () => reject(tx.error);
-  });
+  // Check for existing inbox
+  const { data: existing } = await supabase
+    .from('projects')
+    .select('*, captures(count)')
+    .eq('is_inbox', true)
+    .single();
+
+  if (existing) {
+    const count = existing.captures?.[0]?.count ?? 0;
+    return rowToProject(existing, count);
+  }
+
+  // Create inbox
+  const { data, error } = await supabase
+    .from('projects')
+    .insert({ user_id: userId, name: 'Inbox', is_inbox: true })
+    .select('*, captures(count)')
+    .single();
+
+  if (error) throw error;
+  return rowToProject(data, 0);
 }
+
+export async function getProjectMap(): Promise<Record<string, Project>> {
+  const projects = await getProjects();
+  const map: Record<string, Project> = {};
+  for (const p of projects) {
+    map[p.id] = p;
+  }
+  return map;
+}
+
+// --- Capture functions ---
 
 export async function addCapture(
   projectId: string,
@@ -174,146 +209,133 @@ export async function addCapture(
   images: string[] = [],
   metadata: Record<string, unknown> = {},
   note: string = '',
-  tags: string[] = []
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  tags: string[] = [],
 ): Promise<Capture> {
-  const db = await openDB();
+  const supabase = createClient();
+  const userId = await getUserId();
   const platform = detectPlatform(url);
-  const capture: Capture = {
-    id: generateId(),
-    projectId,
-    url,
-    platform,
-    title,
-    body,
-    author,
-    images,
-    metadata,
-    note,
-    tags,
-    createdAt: Date.now(),
-    contentTag: detectContentTag({ platform, title, body }),
-  };
-  return new Promise((resolve, reject) => {
-    const tx = db.transaction('captures', 'readwrite');
-    tx.objectStore('captures').add(capture);
-    tx.oncomplete = async () => {
-      const all = await getCaptures(projectId);
-      await updateProject(projectId, { captureCount: all.length });
-      resolve(capture);
-    };
-    tx.onerror = () => reject(tx.error);
-  });
+  const contentTag = detectContentTag({ platform, title, body });
+
+  const { data, error } = await supabase
+    .from('captures')
+    .insert({
+      project_id: projectId,
+      user_id: userId,
+      url,
+      title,
+      body,
+      author,
+      platform,
+      content_tag: contentTag,
+      note,
+      images,
+      metadata,
+    })
+    .select()
+    .single();
+
+  if (error) throw error;
+
+  // Touch the project's updated_at
+  await supabase
+    .from('projects')
+    .update({ updated_at: new Date().toISOString() })
+    .eq('id', projectId);
+
+  return rowToCapture(data);
 }
 
 export async function getCaptures(projectId: string): Promise<Capture[]> {
-  const db = await openDB();
-  return new Promise((resolve, reject) => {
-    const tx = db.transaction('captures', 'readonly');
-    const index = tx.objectStore('captures').index('projectId');
-    const request = index.getAll(projectId);
-    request.onsuccess = () => {
-      const captures = request.result as Capture[];
-      captures.sort((a, b) => {
-        const aOrder = a.sortOrder ?? 0;
-        const bOrder = b.sortOrder ?? 0;
-        if (aOrder !== bOrder) return aOrder - bOrder;
-        return b.createdAt - a.createdAt;
-      });
-      resolve(captures);
-    };
-    request.onerror = () => reject(request.error);
-  });
+  const supabase = createClient();
+
+  const { data, error } = await supabase
+    .from('captures')
+    .select('*')
+    .eq('project_id', projectId)
+    .order('sort_order', { ascending: true })
+    .order('created_at', { ascending: false });
+
+  if (error) throw error;
+  return (data || []).map(rowToCapture);
 }
 
 export async function getCapture(id: string): Promise<Capture | null> {
-  const db = await openDB();
-  return new Promise((resolve, reject) => {
-    const tx = db.transaction('captures', 'readonly');
-    const request = tx.objectStore('captures').get(id);
-    request.onsuccess = () => resolve(request.result || null);
-    request.onerror = () => reject(request.error);
-  });
-}
+  const supabase = createClient();
 
-export async function deleteCapture(id: string, projectId: string): Promise<void> {
-  const db = await openDB();
-  return new Promise((resolve, reject) => {
-    const tx = db.transaction('captures', 'readwrite');
-    tx.objectStore('captures').delete(id);
-    tx.oncomplete = async () => {
-      const all = await getCaptures(projectId);
-      await updateProject(projectId, { captureCount: all.length });
-      resolve();
-    };
-    tx.onerror = () => reject(tx.error);
-  });
+  const { data, error } = await supabase
+    .from('captures')
+    .select('*')
+    .eq('id', id)
+    .single();
+
+  if (error) {
+    if (error.code === 'PGRST116') return null;
+    throw error;
+  }
+  return rowToCapture(data);
 }
 
 export async function updateCapture(id: string, updates: Partial<Capture>): Promise<void> {
-  const db = await openDB();
-  const capture = await getCapture(id);
-  if (!capture) return;
-  return new Promise((resolve, reject) => {
-    const tx = db.transaction('captures', 'readwrite');
-    tx.objectStore('captures').put({ ...capture, ...updates });
-    tx.oncomplete = () => resolve();
-    tx.onerror = () => reject(tx.error);
-  });
+  const supabase = createClient();
+
+  // Map interface fields to DB column names
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const dbUpdates: Record<string, any> = {};
+  if (updates.projectId !== undefined) dbUpdates.project_id = updates.projectId;
+  if (updates.url !== undefined) dbUpdates.url = updates.url;
+  if (updates.title !== undefined) dbUpdates.title = updates.title;
+  if (updates.body !== undefined) dbUpdates.body = updates.body;
+  if (updates.author !== undefined) dbUpdates.author = updates.author;
+  if (updates.platform !== undefined) dbUpdates.platform = updates.platform;
+  if (updates.contentTag !== undefined) dbUpdates.content_tag = updates.contentTag;
+  if (updates.note !== undefined) dbUpdates.note = updates.note;
+  if (updates.images !== undefined) dbUpdates.images = updates.images;
+  if (updates.metadata !== undefined) dbUpdates.metadata = updates.metadata;
+  if (updates.sortOrder !== undefined) dbUpdates.sort_order = updates.sortOrder;
+
+  if (Object.keys(dbUpdates).length === 0) return;
+
+  const { error } = await supabase
+    .from('captures')
+    .update(dbUpdates)
+    .eq('id', id);
+
+  if (error) throw error;
+}
+
+export async function deleteCapture(id: string, projectId: string): Promise<void> {
+  const supabase = createClient();
+
+  const { error } = await supabase
+    .from('captures')
+    .delete()
+    .eq('id', id);
+
+  if (error) throw error;
+
+  // Touch the project's updated_at
+  await supabase
+    .from('projects')
+    .update({ updated_at: new Date().toISOString() })
+    .eq('id', projectId);
 }
 
 export async function moveCapture(captureId: string, fromProjectId: string, toProjectId: string): Promise<void> {
-  await updateCapture(captureId, { projectId: toProjectId });
-  // Update capture counts on both projects
-  const [fromCaptures, toCaptures] = await Promise.all([getCaptures(fromProjectId), getCaptures(toProjectId)]);
+  const supabase = createClient();
+
+  const { error } = await supabase
+    .from('captures')
+    .update({ project_id: toProjectId })
+    .eq('id', captureId);
+
+  if (error) throw error;
+
+  // Touch both projects' updated_at
   await Promise.all([
-    updateProject(fromProjectId, { captureCount: fromCaptures.length }),
-    updateProject(toProjectId, { captureCount: toCaptures.length }),
+    supabase.from('projects').update({ updated_at: new Date().toISOString() }).eq('id', fromProjectId),
+    supabase.from('projects').update({ updated_at: new Date().toISOString() }).eq('id', toProjectId),
   ]);
-}
-
-export async function getAllCaptures(): Promise<Capture[]> {
-  const db = await openDB();
-  return new Promise((resolve, reject) => {
-    const tx = db.transaction('captures', 'readonly');
-    const request = tx.objectStore('captures').getAll();
-    request.onsuccess = () => {
-      const captures = request.result as Capture[];
-      captures.sort((a, b) => b.createdAt - a.createdAt);
-      resolve(captures);
-    };
-    request.onerror = () => reject(request.error);
-  });
-}
-
-// Re-run detectContentTag on all existing captures to update cached tags
-export async function retagAllCaptures(): Promise<number> {
-  const db = await openDB();
-  const captures = await getAllCaptures();
-  let updated = 0;
-  await new Promise<void>((resolve, reject) => {
-    const tx = db.transaction('captures', 'readwrite');
-    const store = tx.objectStore('captures');
-    for (const c of captures) {
-      const newTag = detectContentTag(c);
-      if (c.contentTag !== newTag) {
-        c.contentTag = newTag;
-        store.put(c);
-        updated++;
-      }
-    }
-    tx.oncomplete = () => resolve();
-    tx.onerror = () => reject(tx.error);
-  });
-  return updated;
-}
-
-export async function getProjectMap(): Promise<Record<string, Project>> {
-  const projects = await getProjects();
-  const map: Record<string, Project> = {};
-  for (const p of projects) {
-    map[p.id] = p;
-  }
-  return map;
 }
 
 export async function copyCapture(captureId: string, toProjectId: string): Promise<Capture> {
@@ -328,30 +350,36 @@ export async function copyCapture(captureId: string, toProjectId: string): Promi
     original.images,
     original.metadata,
     original.note,
-    original.tags,
   );
+}
+
+export async function getAllCaptures(): Promise<Capture[]> {
+  const supabase = createClient();
+
+  const { data, error } = await supabase
+    .from('captures')
+    .select('*')
+    .order('created_at', { ascending: false });
+
+  if (error) throw error;
+  return (data || []).map(rowToCapture);
 }
 
 export async function reorderCapture(projectId: string, captureId: string, direction: 'up' | 'down'): Promise<void> {
   const captures = await getCaptures(projectId);
   if (captures.length < 2) return;
 
-  // Assign sequential sortOrder values if not already set
-  const needsInit = captures.some(c => c.sortOrder == null);
+  // Initialize sort_order if needed
+  const needsInit = captures.some(c => c.sortOrder == null || c.sortOrder === 0);
   if (needsInit) {
-    const db = await openDB();
-    await new Promise<void>((resolve, reject) => {
-      const tx = db.transaction('captures', 'readwrite');
-      const store = tx.objectStore('captures');
-      captures.forEach((c, i) => {
-        store.put({ ...c, sortOrder: (i + 1) * 10 });
-      });
-      tx.oncomplete = () => resolve();
-      tx.onerror = () => reject(tx.error);
-    });
-    // Re-fetch with updated sortOrder values
-    const updated = await getCaptures(projectId);
-    captures.splice(0, captures.length, ...updated);
+    const supabase = createClient();
+    for (let i = 0; i < captures.length; i++) {
+      await supabase
+        .from('captures')
+        .update({ sort_order: (i + 1) * 10 })
+        .eq('id', captures[i].id);
+      captures[i].sortOrder = (i + 1) * 10;
+    }
   }
 
   const idx = captures.findIndex(c => c.id === captureId);
@@ -359,7 +387,7 @@ export async function reorderCapture(projectId: string, captureId: string, direc
   const swapIdx = direction === 'up' ? idx - 1 : idx + 1;
   if (swapIdx < 0 || swapIdx >= captures.length) return;
 
-  // Swap sortOrder values
+  // Swap sort_order values
   const tempOrder = captures[idx].sortOrder!;
   await Promise.all([
     updateCapture(captures[idx].id, { sortOrder: captures[swapIdx].sortOrder! }),
@@ -367,7 +395,15 @@ export async function reorderCapture(projectId: string, captureId: string, direc
   ]);
 }
 
-// Build engagement string for a capture based on platform metadata
+// --- Utility functions (pure logic, no DB) ---
+
+function detectPlatform(url: string): Platform {
+  if (url.includes('reddit.com') || url.includes('redd.it')) return 'reddit';
+  if (url.includes('twitter.com') || url.includes('x.com')) return 'twitter';
+  if (url.includes('github.com')) return 'github';
+  return 'article';
+}
+
 export function formatEngagement(c: Capture): string {
   const m = c.metadata;
   if (!m) return '';
@@ -402,7 +438,6 @@ export function formatEngagement(c: Capture): string {
   return '';
 }
 
-// Auto-detect content type from capture metadata and content
 export function detectContentType(c: Capture): string {
   if (c.platform === 'github') {
     if (c.metadata?.isFile) return 'source_file';
@@ -422,7 +457,6 @@ export function detectContentType(c: Capture): string {
   return 'other';
 }
 
-// Auto-detect content tag for display
 export function detectContentTag(c: { platform: Platform; title: string; body: string }): string {
   if (c.platform === 'reddit') return 'Post';
   if (c.platform === 'github') return 'Repo';
@@ -430,12 +464,8 @@ export function detectContentTag(c: { platform: Platform; title: string; body: s
     const body = c.body || '';
     const wordCount = body.split(/\s+/).filter(Boolean).length;
     if (wordCount >= 500) return 'Article';
-    // Thread indicators — must be unambiguous multi-tweet evidence
-    // 1/ 2/ numbering at start of line (not mid-sentence fractions like "24/7")
     const hasNumbering = /^[1１]\/ /m.test(body) && /^[2-9２-９]\/ /m.test(body);
-    // Multiple tweet separators (one could be formatting; two+ means thread)
     const hasSeparators = (body.match(/\n---\n/g) || []).length >= 2;
-    // Multiple @user · timestamp blocks (each = a distinct tweet in thread)
     const hasTweetBlocks = (body.match(/^@\w+\s*·/gm) || []).length >= 2;
     if (hasNumbering || hasSeparators || hasTweetBlocks) return 'Thread';
     return 'Post';
@@ -443,7 +473,6 @@ export function detectContentTag(c: { platform: Platform; title: string; body: s
   return 'Article';
 }
 
-// Map platform to its display label used on cards
 const PLATFORM_TAG_LABELS: Record<Platform, string> = {
   reddit: 'Reddit',
   twitter: 'X',
@@ -452,37 +481,29 @@ const PLATFORM_TAG_LABELS: Record<Platform, string> = {
   other: 'Other',
 };
 
-// Returns the content tag only if it adds info beyond the platform badge
 export function getUniqueContentTag(c: { platform: Platform; title: string; body: string; contentTag?: string }): string | null {
   const tag = c.contentTag || detectContentTag(c);
   const platformLabel = PLATFORM_TAG_LABELS[c.platform] || c.platform;
-  // Don't show tag if it's the same text as the platform badge
   if (tag.toLowerCase() === platformLabel.toLowerCase()) return null;
   return tag;
 }
 
-// Normalize URL for duplicate comparison
 export function normalizeUrl(url: string): string {
   try {
     const u = new URL(url);
-    // Normalize to https
     u.protocol = 'https:';
-    // Remove www.
     u.hostname = u.hostname.replace(/^www\./, '');
-    // Remove tracking params
     const trackingParams = ['utm_source', 'utm_medium', 'utm_campaign', 'utm_term', 'utm_content', 'ref', 'fbclid', 'gclid'];
     for (const p of trackingParams) {
       u.searchParams.delete(p);
     }
-    // Remove trailing slash
-    let path = u.pathname.replace(/\/+$/, '') || '/';
+    const path = u.pathname.replace(/\/+$/, '') || '/';
     return `${u.protocol}//${u.hostname}${path}${u.search}${u.hash}`.replace(/\/$/, '');
   } catch {
     return url.toLowerCase().replace(/\/+$/, '');
   }
 }
 
-// Find existing capture by URL (for duplicate detection)
 export async function findCaptureByUrl(url: string): Promise<{ capture: Capture; project: Project } | null> {
   const normalized = normalizeUrl(url);
   const captures = await getAllCaptures();
@@ -495,7 +516,6 @@ export async function findCaptureByUrl(url: string): Promise<{ capture: Capture;
   return null;
 }
 
-// Platform display labels for export
 export const PLATFORM_DISPLAY: Record<string, string> = {
   twitter: 'X (Twitter)',
   reddit: 'Reddit',
@@ -504,7 +524,6 @@ export const PLATFORM_DISPLAY: Record<string, string> = {
   other: 'Other',
 };
 
-// Export captures as structured markdown for Claude
 export async function exportProjectAsMarkdown(projectId: string, filterPlatform?: Platform | 'all'): Promise<string> {
   const project = await getProject(projectId);
   let captures = await getCaptures(projectId);
@@ -524,7 +543,6 @@ export async function exportProjectAsMarkdown(projectId: string, filterPlatform?
   md += `---\n\n`;
 
   for (const c of captures) {
-    // Structured YAML-style metadata block
     md += `---\n`;
     md += `source: ${PLATFORM_DISPLAY[c.platform] || c.platform}\n`;
     md += `author: ${c.author}\n`;
@@ -536,10 +554,8 @@ export async function exportProjectAsMarkdown(projectId: string, filterPlatform?
     if (c.note) md += `context_for_claude: ${c.note}\n`;
     md += `---\n\n`;
 
-    // Title + body
     md += `## ${c.title}\n\n`;
 
-    // Strip [image:URL] markers from body for clean text export
     const cleanBody = c.body.replace(/\[image:[^\]]+\]\n?\n?/g, '');
     md += `${cleanBody}\n\n`;
 
@@ -552,7 +568,6 @@ export async function exportProjectAsMarkdown(projectId: string, filterPlatform?
     }
   }
 
-  // Collection summary
   if (captures.length > 0) {
     const platforms = [...new Set(captures.map(c => PLATFORM_DISPLAY[c.platform] || c.platform))];
     const dates = captures.map(c => c.createdAt).sort();

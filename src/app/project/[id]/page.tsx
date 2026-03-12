@@ -16,12 +16,12 @@ import {
   reorderCapture,
   findCaptureByUrl,
   getUniqueContentTag,
-  INBOX_PROJECT_ID,
   type Project,
   type Capture,
   type Platform,
 } from '@/lib/db';
 import { exportProjectAsPdf, exportCapturePdf } from '@/lib/pdf-export';
+import UserMenu from '@/components/UserMenu';
 
 const PLATFORMS: { key: Platform | 'all'; label: string; color: string }[] = [
   { key: 'all', label: 'All', color: '#f0f0f0' },
@@ -138,7 +138,7 @@ export default function ProjectPage() {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [confirmDelete, moveTarget, copyTarget, confirmDeleteProject, showExportConfirm, duplicateInfo, viewing]);
 
-  const isInbox = projectId === INBOX_PROJECT_ID;
+  const isInbox = project?.is_inbox ?? false;
 
   const filteredCaptures = activeFilter === 'all'
     ? captures
@@ -649,10 +649,13 @@ export default function ProjectPage() {
 
       {/* ── Header ── */}
       <header className="px-5 pt-5 pb-4">
-        <button onClick={() => router.push('/')} className="flex items-center gap-1 text-sm font-medium mb-3" style={{ color: 'var(--text-tertiary)' }}>
-          <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M10 4l-4 4 4 4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" /></svg>
-          Projects
-        </button>
+        <div className="flex items-center justify-between mb-3">
+          <button onClick={() => router.push('/')} className="flex items-center gap-1 text-sm font-medium" style={{ color: 'var(--text-tertiary)' }}>
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M10 4l-4 4 4 4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" /></svg>
+            Projects
+          </button>
+          <UserMenu />
+        </div>
         <div className="flex items-end justify-between">
           <div className="flex-1 min-w-0">
             {editingProjectName && !isInbox ? (

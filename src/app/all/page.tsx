@@ -12,12 +12,12 @@ import {
   moveCapture,
   copyCapture,
   getUniqueContentTag,
-  INBOX_PROJECT_ID,
   type Project,
   type Capture,
   type Platform,
 } from '@/lib/db';
 import { exportCapturePdf } from '@/lib/pdf-export';
+import UserMenu from '@/components/UserMenu';
 
 const PLATFORMS: { key: Platform | 'all'; label: string; color: string }[] = [
   { key: 'all', label: 'All', color: '#f0f0f0' },
@@ -288,16 +288,19 @@ export default function AllCapturesPage() {
     <main className="min-h-dvh safe-top safe-bottom">
       {/* Header */}
       <header className="px-5 pt-8 pb-4 max-w-5xl mx-auto">
-        <button
-          onClick={() => router.push('/')}
-          className="flex items-center gap-1.5 text-sm mb-4 transition-colors"
-          style={{ color: 'var(--text-tertiary)' }}
-        >
-          <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
-            <path d="M10 4l-4 4 4 4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-          </svg>
-          Back
-        </button>
+        <div className="flex items-center justify-between mb-4">
+          <button
+            onClick={() => router.push('/')}
+            className="flex items-center gap-1.5 text-sm transition-colors"
+            style={{ color: 'var(--text-tertiary)' }}
+          >
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
+              <path d="M10 4l-4 4 4 4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+            Back
+          </button>
+          <UserMenu />
+        </div>
         <h1 className="text-2xl font-bold tracking-tight" style={{ color: 'var(--text-primary)' }}>
           All Captures
         </h1>
