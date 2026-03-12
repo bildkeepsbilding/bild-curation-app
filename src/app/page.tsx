@@ -73,25 +73,31 @@ export default function Home() {
 
   async function loadProjects() {
     try {
-      // Ensure Inbox exists
+      // Ensure Inbox exists, then fetch projects and all captures in parallel
       await ensureInbox();
 
-      const p = await getProjects();
-      // Enrich all projects with cover images, latest title, platform info
-      const enriched: ProjectWithCover[] = await Promise.all(
-        p.map(async (project) => {
-          try {
-            const captures = await getCaptures(project.id);
-            // Most recent capture with images for cover
-            const coverImage = captures.find(c => c.images && c.images.length > 0)?.images[0];
-            const latestTitle = captures.length > 0 ? captures[0].title : undefined;
-            const platforms = [...new Set(captures.map(c => c.platform))];
-            return { ...project, coverImage, latestTitle, platforms };
-          } catch {
-            return { ...project, platforms: [] };
-          }
-        })
-      );
+      const [p, allCaptures] = await Promise.all([
+        getProjects(),
+        getAllCaptures(),
+      ]);
+
+      setTotalCaptures(allCaptures.length);
+
+      // Build a map of projectId → captures for enrichment (no extra DB calls)
+      const capturesByProject = new Map<string, Capture[]>();
+      for (const c of allCaptures) {
+        const list = capturesByProject.get(c.projectId) || [];
+        list.push(c);
+        capturesByProject.set(c.projectId, list);
+      }
+
+      const enriched: ProjectWithCover[] = p.map((project) => {
+        const captures = capturesByProject.get(project.id) || [];
+        const coverImage = captures.find(c => c.images && c.images.length > 0)?.images[0];
+        const latestTitle = captures.length > 0 ? captures[0].title : undefined;
+        const platforms = [...new Set(captures.map(c => c.platform))];
+        return { ...project, coverImage, latestTitle, platforms };
+      });
 
       // Separate Inbox from regular projects
       const inbox = enriched.find(p => p.is_inbox) || null;
@@ -99,12 +105,6 @@ export default function Home() {
 
       setInboxProject(inbox);
       setProjects(regular);
-
-      // Total capture count across all projects
-      try {
-        const allCaptures = await getAllCaptures();
-        setTotalCaptures(allCaptures.length);
-      } catch { setTotalCaptures(0); }
     } catch (e) {
       console.error('Failed to load projects:', e);
     } finally {
@@ -336,8 +336,33 @@ export default function Home() {
 
       <div className="px-5 pb-8 max-w-5xl mx-auto">
         {loading ? (
-          <div className="flex items-center justify-center py-20">
-            <div className="w-5 h-5 rounded-full border-2 animate-spin" style={{ borderColor: 'var(--border)', borderTopColor: 'var(--accent)' }} />
+          <div>
+            {/* Skeleton: Quick capture bar */}
+            <div className="mb-6">
+              <div className="skeleton h-3 w-32 mb-2" />
+              <div className="flex gap-2">
+                <div className="skeleton flex-1 h-12 rounded-xl" />
+                <div className="skeleton h-12 w-28 rounded-xl" />
+              </div>
+            </div>
+            {/* Skeleton: Inbox card */}
+            <div className="rounded-2xl p-4 mb-6" style={{ border: '1px solid var(--border-subtle)' }}>
+              <div className="flex items-center gap-3">
+                <div className="skeleton w-10 h-10 rounded-xl" />
+                <div className="flex-1">
+                  <div className="skeleton h-4 w-24 mb-2" />
+                  <div className="skeleton h-3 w-48" />
+                </div>
+              </div>
+            </div>
+            {/* Skeleton: Project cards grid */}
+            <div className="project-grid">
+              {[1, 2, 3].map((i) => (
+                <div key={i} className="rounded-2xl overflow-hidden" style={{ border: '1px solid var(--border-subtle)' }}>
+                  <div className="skeleton h-52 w-full" style={{ borderRadius: 0 }} />
+                </div>
+              ))}
+            </div>
           </div>
         ) : (
           <>

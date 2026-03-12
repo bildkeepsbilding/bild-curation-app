@@ -74,6 +74,8 @@ export default function ProjectPage() {
   const [toast, setToast] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [showExportConfirm, setShowExportConfirm] = useState(false);
+  const [optimisticUrl, setOptimisticUrl] = useState<string | null>(null);
+  const [optimisticError, setOptimisticError] = useState<string | null>(null);
   const urlInputRef = useRef<HTMLInputElement>(null);
 
   function showToast(msg: string) {
@@ -172,6 +174,9 @@ export default function ProjectPage() {
     if (!url) return;
     setFetching(true);
     setFetchError('');
+    setOptimisticUrl(url);
+    setOptimisticError(null);
+    setUrlInput('');
 
     try {
       const response = await fetch('/api/fetch-url', {
@@ -185,11 +190,11 @@ export default function ProjectPage() {
       }
       const data = await response.json();
       await addCapture(projectId, url, data.title, data.body, data.author, data.images || [], data.metadata || {});
-      setUrlInput('');
+      setOptimisticUrl(null);
       await loadData();
       showToast(project ? `Captured to ${project.name}` : 'Captured');
     } catch (e) {
-      setFetchError(e instanceof Error ? e.message : 'Something went wrong');
+      setOptimisticError(e instanceof Error ? e.message : 'Something went wrong');
     } finally {
       setFetching(false);
     }
@@ -489,9 +494,47 @@ export default function ProjectPage() {
 
   if (loading) {
     return (
-      <div className="min-h-dvh flex items-center justify-center">
-        <div className="w-5 h-5 rounded-full border-2 animate-spin" style={{ borderColor: 'var(--border)', borderTopColor: 'var(--accent)' }} />
-      </div>
+      <main className="min-h-dvh safe-top safe-bottom">
+        {/* Skeleton header */}
+        <header className="px-5 pt-6 pb-4 flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="skeleton w-8 h-8 rounded-lg" />
+            <div>
+              <div className="skeleton h-5 w-40 mb-2" />
+              <div className="skeleton h-3 w-24" />
+            </div>
+          </div>
+          <div className="skeleton h-9 w-36 rounded-full" />
+        </header>
+        {/* Skeleton URL input */}
+        <div className="px-5 mb-4">
+          <div className="flex gap-2">
+            <div className="skeleton flex-1 h-12 rounded-xl" />
+            <div className="skeleton h-12 w-24 rounded-xl" />
+          </div>
+        </div>
+        {/* Skeleton capture cards */}
+        <div className="px-5 pb-8">
+          <div className="capture-grid">
+            {[1, 2, 3, 4].map((i) => (
+              <div key={i} className="rounded-2xl overflow-hidden" style={{ border: '1px solid var(--border-subtle)' }}>
+                <div className="skeleton h-40 w-full" style={{ borderRadius: 0 }} />
+                <div className="p-4">
+                  <div className="skeleton h-3 w-16 mb-3 rounded" />
+                  <div className="skeleton h-4 w-full mb-2" />
+                  <div className="skeleton h-4 w-3/4 mb-3" />
+                  <div className="skeleton h-3 w-full mb-1" />
+                  <div className="skeleton h-3 w-2/3 mb-3" />
+                  <div className="flex justify-between">
+                    <div className="skeleton h-3 w-20" />
+                    <div className="skeleton h-3 w-16" />
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </main>
     );
   }
 
@@ -825,6 +868,37 @@ export default function ProjectPage() {
           </div>
         ) : (
           <div className="capture-grid stagger-children">
+            {/* Optimistic capture card — shows while extracting */}
+            {optimisticUrl && (
+              <div className="capture-card rounded-2xl overflow-hidden" style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border-subtle)' }}>
+                {optimisticError ? (
+                  <div className="p-4">
+                    <div className="flex items-center gap-2 mb-2">
+                      <span className="px-2 py-0.5 rounded text-[11px] font-semibold" style={{ background: 'var(--danger-dim)', color: 'var(--danger)' }}>Error</span>
+                    </div>
+                    <p className="text-sm font-semibold mb-1.5 line-clamp-2" style={{ color: 'var(--text-primary)', lineHeight: 1.4 }}>{optimisticError}</p>
+                    <p className="text-[11px] mb-3 truncate" style={{ color: 'var(--text-tertiary)' }}>{optimisticUrl}</p>
+                    <div className="flex gap-2">
+                      <button onClick={() => { setOptimisticUrl(null); setOptimisticError(null); }} className="px-3 py-1.5 rounded-lg text-xs" style={{ color: 'var(--text-tertiary)', border: '1px solid var(--border)' }}>Dismiss</button>
+                      <button onClick={() => { setOptimisticError(null); doFetchUrl(optimisticUrl); }} className="px-3 py-1.5 rounded-lg text-xs font-semibold" style={{ background: 'var(--accent)', color: 'var(--bg)' }}>Retry</button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="optimistic-card">
+                    <div className="skeleton h-40 w-full" style={{ borderRadius: 0 }} />
+                    <div className="p-4">
+                      <div className="flex items-center gap-2 mb-3">
+                        <div className="w-4 h-4 rounded-full border-2 animate-spin flex-shrink-0" style={{ borderColor: 'var(--border)', borderTopColor: 'var(--accent)' }} />
+                        <span className="text-xs font-medium" style={{ color: 'var(--accent)' }}>Extracting content...</span>
+                      </div>
+                      <div className="skeleton h-4 w-full mb-2" />
+                      <div className="skeleton h-4 w-3/4 mb-3" />
+                      <p className="text-[11px] truncate" style={{ color: 'var(--text-tertiary)' }}>{optimisticUrl}</p>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
             {filteredCaptures.map((capture) => {
               const hasImage = capture.images && capture.images.length > 0 && capture.platform !== 'github';
               const bodyPreview = cleanBody(capture.body.split('\n---')[0]);
