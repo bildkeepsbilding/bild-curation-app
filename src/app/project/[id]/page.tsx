@@ -39,6 +39,20 @@ const PLATFORM_LABELS: Record<string, { label: string; color: string }> = {
   other: { label: 'Other', color: '#6B7280' },
 };
 
+const PLATFORM_GRADIENTS: Record<string, string> = {
+  reddit: 'linear-gradient(135deg, #FF4500 0%, #FF6B35 50%, #CC3700 100%)',
+  twitter: 'linear-gradient(135deg, #1DA1F2 0%, #4FBBF7 50%, #0D8BD9 100%)',
+  github: 'linear-gradient(135deg, #8B5CF6 0%, #A78BFA 50%, #6D28D9 100%)',
+  article: 'linear-gradient(135deg, #10B981 0%, #34D399 50%, #059669 100%)',
+  other: 'linear-gradient(135deg, #6B7280 0%, #9CA3AF 50%, #4B5563 100%)',
+};
+
+function formatCompact(n: number): string {
+  if (n >= 1_000_000) return (n / 1_000_000).toFixed(1).replace(/\.0$/, '') + 'M';
+  if (n >= 1_000) return (n / 1_000).toFixed(1).replace(/\.0$/, '') + 'K';
+  return n.toString();
+}
+
 export default function ProjectPage() {
   const params = useParams();
   const router = useRouter();
@@ -969,8 +983,8 @@ export default function ProjectPage() {
                     className="w-full text-left"
                     disabled={isEditing}
                   >
-                    {/* Hero image with gradient fade */}
-                    {hasImage && (
+                    {/* Hero image or platform gradient fallback */}
+                    {hasImage ? (
                       <div className="relative w-full" style={{ height: '160px' }}>
                         <img src={capture.images[0]} alt="" className="w-full h-full object-cover" loading="lazy" referrerPolicy="no-referrer" onError={(e) => { const parent = (e.target as HTMLImageElement).closest('.relative') as HTMLElement | null; if (parent) parent.style.display = 'none'; }} />
                         <div className="absolute inset-0" style={{ background: 'linear-gradient(to top, var(--bg-elevated) 0%, transparent 60%)' }} />
@@ -985,21 +999,97 @@ export default function ProjectPage() {
                           ) : null; })()}
                         </div>
                       </div>
-                    )}
-
-                    <div className="p-4" style={{ marginTop: hasImage ? '-24px' : '0', position: 'relative' }}>
-                      {!hasImage && (
-                        <div className="mb-2 flex items-center gap-1.5">
-                          <span className="px-2 py-0.5 rounded text-[11px] font-semibold" style={{ background: PLATFORM_LABELS[capture.platform]?.color + '20', color: PLATFORM_LABELS[capture.platform]?.color }}>
+                    ) : (
+                      <div className="relative w-full overflow-hidden" style={{ height: '120px', background: PLATFORM_GRADIENTS[capture.platform] || PLATFORM_GRADIENTS.other }}>
+                        {/* Platform watermark icon */}
+                        <div className="absolute inset-0 flex items-center justify-center" style={{ opacity: 0.08 }}>
+                          {capture.platform === 'twitter' && (
+                            <svg width="80" height="80" viewBox="0 0 24 24" fill="white"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg>
+                          )}
+                          {capture.platform === 'reddit' && (
+                            <svg width="80" height="80" viewBox="0 0 24 24" fill="white"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm5.8 11.33c.02.16.03.33.03.5 0 2.55-2.97 4.63-6.63 4.63-3.67 0-6.64-2.07-6.64-4.63 0-.17.01-.33.03-.5A1.98 1.98 0 013.4 12c0-1.1.9-2 2-2 .53 0 1.01.21 1.37.55C8.19 9.55 9.97 9 12 9c0 0 1.69-4.47 1.84-4.83.04-.1.13-.17.24-.18l3.32-.44c.18-.48.63-.83 1.17-.83.69 0 1.25.56 1.25 1.25s-.56 1.25-1.25 1.25c-.52 0-.96-.32-1.15-.77l-2.97.39-1.52 4.02c1.97.04 3.69.58 5.09 1.56.36-.34.85-.55 1.38-.55 1.1 0 2 .9 2 2a2 2 0 01-1.2 1.83zM8.5 12.5a1.5 1.5 0 100 3 1.5 1.5 0 000-3zm7 0a1.5 1.5 0 100 3 1.5 1.5 0 000-3zm-6.97 4.67c-.08-.08-.08-.22 0-.3.08-.08.22-.08.3 0C9.58 17.62 10.73 18 12 18s2.42-.38 3.17-1.13c.08-.08.22-.08.3 0 .08.08.08.22 0 .3-.87.87-2.13 1.33-3.47 1.33s-2.6-.46-3.47-1.33z"/></svg>
+                          )}
+                          {capture.platform === 'github' && (
+                            <svg width="80" height="80" viewBox="0 0 24 24" fill="white"><path d="M12 2C6.477 2 2 6.477 2 12c0 4.42 2.865 8.17 6.839 9.49.5.092.682-.217.682-.482 0-.237-.008-.866-.013-1.7-2.782.604-3.369-1.34-3.369-1.34-.454-1.156-1.11-1.464-1.11-1.464-.908-.62.069-.608.069-.608 1.003.07 1.531 1.03 1.531 1.03.892 1.529 2.341 1.087 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.11-4.555-4.943 0-1.091.39-1.984 1.029-2.683-.103-.253-.446-1.27.098-2.647 0 0 .84-.269 2.75 1.025A9.578 9.578 0 0112 6.836c.85.004 1.705.115 2.504.337 1.909-1.294 2.747-1.025 2.747-1.025.546 1.377.203 2.394.1 2.647.64.699 1.028 1.592 1.028 2.683 0 3.842-2.339 4.687-4.566 4.935.359.309.678.919.678 1.852 0 1.336-.012 2.415-.012 2.743 0 .267.18.578.688.48C19.138 20.167 22 16.418 22 12c0-5.523-4.477-10-10-10z"/></svg>
+                          )}
+                          {(capture.platform === 'article' || capture.platform === 'other') && (
+                            <svg width="80" height="80" viewBox="0 0 24 24" fill="white"><path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-5 14H7v-2h7v2zm3-4H7v-2h10v2zm0-4H7V7h10v2z"/></svg>
+                          )}
+                        </div>
+                        {/* Engagement stats overlay */}
+                        <div className="absolute inset-0 flex items-center justify-center gap-4 px-4">
+                          {capture.platform === 'twitter' && capture.metadata && (
+                            <div className="flex items-center gap-4 text-white">
+                              {(capture.metadata as Record<string, number>).likes > 0 && (
+                                <div className="text-center">
+                                  <div className="text-xl font-bold" style={{ textShadow: '0 1px 3px rgba(0,0,0,0.3)' }}>{formatCompact((capture.metadata as Record<string, number>).likes)}</div>
+                                  <div className="text-[10px] opacity-80">likes</div>
+                                </div>
+                              )}
+                              {(capture.metadata as Record<string, number>).retweets > 0 && (
+                                <div className="text-center">
+                                  <div className="text-xl font-bold" style={{ textShadow: '0 1px 3px rgba(0,0,0,0.3)' }}>{formatCompact((capture.metadata as Record<string, number>).retweets)}</div>
+                                  <div className="text-[10px] opacity-80">reposts</div>
+                                </div>
+                              )}
+                              {(capture.metadata as Record<string, number>).views > 0 && (
+                                <div className="text-center">
+                                  <div className="text-xl font-bold" style={{ textShadow: '0 1px 3px rgba(0,0,0,0.3)' }}>{formatCompact((capture.metadata as Record<string, number>).views)}</div>
+                                  <div className="text-[10px] opacity-80">views</div>
+                                </div>
+                              )}
+                            </div>
+                          )}
+                          {capture.platform === 'reddit' && capture.metadata && (
+                            <div className="flex items-center gap-4 text-white">
+                              {(capture.metadata as Record<string, number>).score > 0 && (
+                                <div className="text-center">
+                                  <div className="text-xl font-bold" style={{ textShadow: '0 1px 3px rgba(0,0,0,0.3)' }}>{formatCompact((capture.metadata as Record<string, number>).score)}</div>
+                                  <div className="text-[10px] opacity-80">points</div>
+                                </div>
+                              )}
+                              {(capture.metadata as Record<string, number>).numComments > 0 && (
+                                <div className="text-center">
+                                  <div className="text-xl font-bold" style={{ textShadow: '0 1px 3px rgba(0,0,0,0.3)' }}>{formatCompact((capture.metadata as Record<string, number>).numComments)}</div>
+                                  <div className="text-[10px] opacity-80">comments</div>
+                                </div>
+                              )}
+                            </div>
+                          )}
+                          {capture.platform === 'github' && capture.metadata && (
+                            <div className="flex items-center gap-4 text-white">
+                              {(capture.metadata as Record<string, number>).stars > 0 && (
+                                <div className="text-center">
+                                  <div className="text-xl font-bold" style={{ textShadow: '0 1px 3px rgba(0,0,0,0.3)' }}>{formatCompact((capture.metadata as Record<string, number>).stars)}</div>
+                                  <div className="text-[10px] opacity-80">stars</div>
+                                </div>
+                              )}
+                              {(capture.metadata as Record<string, number>).forks > 0 && (
+                                <div className="text-center">
+                                  <div className="text-xl font-bold" style={{ textShadow: '0 1px 3px rgba(0,0,0,0.3)' }}>{formatCompact((capture.metadata as Record<string, number>).forks)}</div>
+                                  <div className="text-[10px] opacity-80">forks</div>
+                                </div>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                        {/* Bottom gradient for text fade */}
+                        <div className="absolute inset-x-0 bottom-0 h-10" style={{ background: 'linear-gradient(to top, var(--bg-elevated) 0%, transparent 100%)' }} />
+                        {/* Platform badge */}
+                        <div className="absolute top-3 left-3 flex items-center gap-1">
+                          <span className="px-2 py-0.5 rounded-md text-[11px] font-semibold" style={{ background: 'rgba(255,255,255,0.2)', color: '#fff', backdropFilter: 'blur(4px)' }}>
                             {PLATFORM_LABELS[capture.platform]?.label}
                           </span>
                           {(() => { const tag = getUniqueContentTag(capture); return tag ? (
-                            <span className="px-2 py-0.5 rounded text-[11px] font-medium" style={{ background: 'var(--bg-hover)', color: 'var(--text-tertiary)' }}>
-                              {tag}
-                            </span>
+                          <span className="px-2 py-0.5 rounded-md text-[11px] font-medium" style={{ background: 'rgba(255,255,255,0.15)', color: 'rgba(255,255,255,0.8)', backdropFilter: 'blur(4px)' }}>
+                            {tag}
+                          </span>
                           ) : null; })()}
                         </div>
-                      )}
+                      </div>
+                    )}
+
+                    <div className="p-4" style={{ marginTop: hasImage ? '-24px' : '-12px', position: 'relative' }}>
 
                       {/* Title — editable or static */}
                       {isEditing ? (
