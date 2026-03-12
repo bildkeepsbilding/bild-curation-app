@@ -11,7 +11,7 @@ import {
   updateCapture,
   moveCapture,
   copyCapture,
-  detectContentTag,
+  getUniqueContentTag,
   INBOX_PROJECT_ID,
   type Project,
   type Capture,
@@ -324,7 +324,7 @@ export default function AllCapturesPage() {
               const bodyPreview = cleanBody(capture.body.split('\n---')[0]);
               const isEditing = editingCapture === capture.id;
               const projectName = projectMap[capture.projectId]?.name || 'Unknown';
-              const contentTag = capture.contentTag || detectContentTag(capture);
+              const contentTag = getUniqueContentTag(capture);
               return (
                 <div key={capture.id} className="capture-card group relative w-full text-left rounded-2xl overflow-hidden transition-all" style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border-subtle)' }}>
                   {/* Three-dot menu */}
@@ -377,9 +377,11 @@ export default function AllCapturesPage() {
                           <span className="px-2 py-0.5 rounded-md text-[10px] font-semibold" style={{ background: PLATFORM_LABELS[capture.platform]?.color + 'dd', color: '#fff', backdropFilter: 'blur(4px)' }}>
                             {PLATFORM_LABELS[capture.platform]?.label}
                           </span>
+                          {contentTag && (
                           <span className="px-1.5 py-0.5 rounded text-[10px] font-medium" style={{ background: 'rgba(0,0,0,0.5)', color: 'var(--text-tertiary)', backdropFilter: 'blur(4px)' }}>
                             {contentTag}
                           </span>
+                          )}
                         </div>
                       </div>
                     )}
@@ -391,9 +393,11 @@ export default function AllCapturesPage() {
                             <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold" style={{ background: PLATFORM_LABELS[capture.platform]?.color + '20', color: PLATFORM_LABELS[capture.platform]?.color }}>
                               {PLATFORM_LABELS[capture.platform]?.label}
                             </span>
+                            {contentTag && (
                             <span className="px-1.5 py-0.5 rounded text-[10px] font-medium" style={{ background: 'var(--bg-hover)', color: 'var(--text-tertiary)' }}>
                               {contentTag}
                             </span>
+                            )}
                           </>
                         )}
                         {/* Project label */}

@@ -15,7 +15,7 @@ import {
   copyCapture,
   reorderCapture,
   findCaptureByUrl,
-  detectContentTag,
+  getUniqueContentTag,
   INBOX_PROJECT_ID,
   type Project,
   type Capture,
@@ -854,9 +854,11 @@ export default function ProjectPage() {
                           <span className="px-2 py-0.5 rounded-md text-[10px] font-semibold" style={{ background: PLATFORM_LABELS[capture.platform]?.color + 'dd', color: '#fff', backdropFilter: 'blur(4px)' }}>
                             {PLATFORM_LABELS[capture.platform]?.label}
                           </span>
+                          {(() => { const tag = getUniqueContentTag(capture); return tag ? (
                           <span className="px-1.5 py-0.5 rounded-md text-[10px] font-medium" style={{ background: 'rgba(0,0,0,0.5)', color: 'rgba(255,255,255,0.7)', backdropFilter: 'blur(4px)' }}>
-                            {capture.contentTag || detectContentTag(capture)}
+                            {tag}
                           </span>
+                          ) : null; })()}
                         </div>
                       </div>
                     )}
@@ -867,11 +869,11 @@ export default function ProjectPage() {
                           <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold" style={{ background: PLATFORM_LABELS[capture.platform]?.color + '20', color: PLATFORM_LABELS[capture.platform]?.color }}>
                             {PLATFORM_LABELS[capture.platform]?.label}
                           </span>
-                          {(capture.contentTag || detectContentTag(capture)) && (
+                          {(() => { const tag = getUniqueContentTag(capture); return tag ? (
                             <span className="px-1.5 py-0.5 rounded text-[10px] font-medium" style={{ background: 'var(--bg-hover)', color: 'var(--text-tertiary)' }}>
-                              {capture.contentTag || detectContentTag(capture)}
+                              {tag}
                             </span>
-                          )}
+                          ) : null; })()}
                         </div>
                       )}
 
