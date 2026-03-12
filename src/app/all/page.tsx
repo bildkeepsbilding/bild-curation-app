@@ -54,6 +54,7 @@ export default function AllCapturesPage() {
   const [editNote, setEditNote] = useState('');
   const [editingNote, setEditingNote] = useState(false);
   const [noteText, setNoteText] = useState('');
+  const [deletingId, setDeletingId] = useState<string | null>(null);
   const menuRef = useRef<HTMLDivElement>(null);
   const noteInputRef = useRef<HTMLTextAreaElement>(null);
 
@@ -83,6 +84,20 @@ export default function AllCapturesPage() {
 
   useEffect(() => { if (editingNote && noteInputRef.current) noteInputRef.current.focus(); }, [editingNote]);
 
+  // Keyboard shortcuts
+  useEffect(() => {
+    function handleKeyDown(e: KeyboardEvent) {
+      if (e.key === 'Escape') {
+        if (confirmDelete) { setConfirmDelete(null); return; }
+        if (moveTarget) { setMoveTarget(null); return; }
+        if (copyTarget) { setCopyTarget(null); return; }
+        if (viewing) { setViewing(null); setEditingNote(false); return; }
+      }
+    }
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [confirmDelete, moveTarget, copyTarget, viewing]);
+
   const filteredCaptures = activeFilter === 'all'
     ? captures
     : captures.filter(c => c.platform === activeFilter);
@@ -111,12 +126,18 @@ export default function AllCapturesPage() {
 
   async function handleConfirmDelete() {
     if (!confirmDelete) return;
+    const captureId = confirmDelete.id;
+    const captureProjectId = confirmDelete.projectId;
+    setConfirmDelete(null);
+    setViewing(null);
+    setDeletingId(captureId);
+    await new Promise(r => setTimeout(r, 300));
     try {
-      await deleteCapture(confirmDelete.id, confirmDelete.projectId);
-      setConfirmDelete(null);
-      setViewing(null);
+      await deleteCapture(captureId, captureProjectId);
+      setDeletingId(null);
       await loadData();
     } catch (e) {
+      setDeletingId(null);
       console.error('Delete failed:', e);
     }
   }
@@ -326,7 +347,7 @@ export default function AllCapturesPage() {
               const projectName = projectMap[capture.projectId]?.name || 'Unknown';
               const contentTag = getUniqueContentTag(capture);
               return (
-                <div key={capture.id} className="capture-card group relative w-full text-left rounded-2xl overflow-hidden transition-all" style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border-subtle)' }}>
+                <div key={capture.id} className={`capture-card group relative w-full text-left rounded-2xl overflow-hidden transition-all ${deletingId === capture.id ? 'animate-delete-out' : ''}`} style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border-subtle)' }}>
                   {/* Three-dot menu */}
                   <div className="absolute top-2 right-2 z-10" ref={menuOpen === capture.id ? menuRef : undefined}>
                     <button
@@ -374,11 +395,11 @@ export default function AllCapturesPage() {
                         <img src={capture.images[0]} alt="" className="w-full h-full object-cover" loading="lazy" referrerPolicy="no-referrer" onError={(e) => { const parent = (e.target as HTMLImageElement).closest('.relative') as HTMLElement | null; if (parent) parent.style.display = 'none'; }} />
                         <div className="absolute inset-0" style={{ background: 'linear-gradient(to top, var(--bg-elevated) 0%, transparent 60%)' }} />
                         <div className="absolute top-3 left-3 flex items-center gap-1.5">
-                          <span className="px-2 py-0.5 rounded-md text-[10px] font-semibold" style={{ background: PLATFORM_LABELS[capture.platform]?.color + 'dd', color: '#fff', backdropFilter: 'blur(4px)' }}>
+                          <span className="px-2 py-0.5 rounded-md text-[11px] font-semibold" style={{ background: PLATFORM_LABELS[capture.platform]?.color + 'dd', color: '#fff', backdropFilter: 'blur(4px)' }}>
                             {PLATFORM_LABELS[capture.platform]?.label}
                           </span>
                           {contentTag && (
-                          <span className="px-1.5 py-0.5 rounded text-[10px] font-medium" style={{ background: 'rgba(0,0,0,0.5)', color: 'var(--text-tertiary)', backdropFilter: 'blur(4px)' }}>
+                          <span className="px-2 py-0.5 rounded text-[11px] font-medium" style={{ background: 'rgba(0,0,0,0.5)', color: 'var(--text-tertiary)', backdropFilter: 'blur(4px)' }}>
                             {contentTag}
                           </span>
                           )}
@@ -390,11 +411,11 @@ export default function AllCapturesPage() {
                       <div className="flex items-center gap-2 mb-2">
                         {!hasImage && (
                           <>
-                            <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold" style={{ background: PLATFORM_LABELS[capture.platform]?.color + '20', color: PLATFORM_LABELS[capture.platform]?.color }}>
+                            <span className="px-2 py-0.5 rounded text-[11px] font-semibold" style={{ background: PLATFORM_LABELS[capture.platform]?.color + '20', color: PLATFORM_LABELS[capture.platform]?.color }}>
                               {PLATFORM_LABELS[capture.platform]?.label}
                             </span>
                             {contentTag && (
-                            <span className="px-1.5 py-0.5 rounded text-[10px] font-medium" style={{ background: 'var(--bg-hover)', color: 'var(--text-tertiary)' }}>
+                            <span className="px-2 py-0.5 rounded text-[11px] font-medium" style={{ background: 'var(--bg-hover)', color: 'var(--text-tertiary)' }}>
                               {contentTag}
                             </span>
                             )}
@@ -416,7 +437,7 @@ export default function AllCapturesPage() {
                           autoFocus
                         />
                       ) : (
-                        <h3 className="text-sm font-semibold mb-1.5 line-clamp-2" style={{ color: 'var(--text-primary)', lineHeight: 1.4 }}>
+                        <h3 className="text-[15px] font-bold mb-1.5 line-clamp-2" style={{ color: 'var(--text-primary)', lineHeight: 1.4 }}>
                           {capture.title}
                         </h3>
                       )}
