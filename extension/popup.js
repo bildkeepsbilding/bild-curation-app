@@ -1,6 +1,5 @@
 // ── Config ──
 const DEFAULT_APP_URL = 'https://bild-curation-app.vercel.app';
-const SIGN_IN_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
 const TOKEN_REFRESH_BUFFER_S = 60; // Refresh if within 60s of expiry
 
 // ── DOM refs ──
@@ -96,13 +95,11 @@ async function supabasePost(table, data) {
 async function getSessionFromStorage() {
   try {
     const stored = await chrome.storage.local.get(['access_token', 'refresh_token', 'expires_at']);
-
     if (!stored.access_token || !stored.refresh_token) return null;
 
     // Check if token is expired or about to expire
     const now = Math.floor(Date.now() / 1000);
     if (stored.expires_at && stored.expires_at < now + TOKEN_REFRESH_BUFFER_S) {
-      // Token expired or about to expire — try to refresh
       const refreshed = await refreshAccessToken(stored.refresh_token);
       if (!refreshed) return null;
       return refreshed;
@@ -145,13 +142,11 @@ async function refreshAccessToken(refreshToken) {
     });
 
     if (!res.ok) {
-      // Refresh failed — session is invalid
       await clearSession();
       return null;
     }
 
     const data = await res.json();
-
     if (!data.access_token) {
       await clearSession();
       return null;
@@ -172,103 +167,31 @@ async function refreshAccessToken(refreshToken) {
   }
 }
 
-// ── Sign-in flow via tab ──
+// ── Fetch token from server session ──
 
-function startSignInFlow() {
-  const loginUrl = `${appUrl}/login?extension=true`;
-  let signInTabId = null;
-  let timeoutId = null;
+async function fetchTokenFromServer() {
+  try {
+    const res = await fetch(`${appUrl}/api/extension-token`, {
+      credentials: 'include',
+    });
 
-  function cleanup() {
-    chrome.tabs.onUpdated.removeListener(onTabUpdated);
-    chrome.tabs.onRemoved.removeListener(onTabRemoved);
-    if (timeoutId) clearTimeout(timeoutId);
+    if (!res.ok) return null;
+
+    const data = await res.json();
+    if (!data.access_token) return null;
+
+    const session = {
+      access_token: data.access_token,
+      refresh_token: data.refresh_token,
+      expires_at: data.expires_at,
+    };
+
+    await storeSession(session);
+    return session;
+  } catch (e) {
+    console.warn('Failed to fetch token from server:', e);
+    return null;
   }
-
-  function onTabRemoved(tabId) {
-    if (tabId === signInTabId) {
-      // User closed the tab before completing sign-in
-      cleanup();
-      signInTabId = null;
-    }
-  }
-
-  async function onTabUpdated(tabId, changeInfo) {
-    if (tabId !== signInTabId || !changeInfo.url) return;
-
-    // Check if the tab navigated to the auth success page
-    if (!changeInfo.url.includes('/extension/auth-success')) return;
-
-    // Wait a moment for the page to render the session data
-    setTimeout(async () => {
-      try {
-        const results = await chrome.scripting.executeScript({
-          target: { tabId: signInTabId },
-          func: () => {
-            const el = document.getElementById('extension-session-data');
-            if (!el) return null;
-            return {
-              session: el.dataset.session,
-              status: el.dataset.status,
-            };
-          },
-        });
-
-        const result = results?.[0]?.result;
-
-        if (!result || result.status !== 'success' || !result.session) {
-          // Page hasn't loaded yet or errored — try again in a bit
-          if (result && result.status === 'loading') {
-            // Still loading, will be called again on next update
-            return;
-          }
-          cleanup();
-          try { chrome.tabs.remove(signInTabId); } catch {}
-          showError('Failed to read session from the sign-in page. Please try again.');
-          return;
-        }
-
-        const session = JSON.parse(result.session);
-
-        if (!session.access_token) {
-          cleanup();
-          try { chrome.tabs.remove(signInTabId); } catch {}
-          showError('No access token received. Please try again.');
-          return;
-        }
-
-        // Store the session
-        await storeSession(session);
-
-        cleanup();
-        try { chrome.tabs.remove(signInTabId); } catch {}
-
-        // Re-initialize with the new session
-        init();
-      } catch (e) {
-        console.warn('Failed to read session from tab:', e);
-        cleanup();
-        try { chrome.tabs.remove(signInTabId); } catch {}
-        showError('Failed to connect. Make sure you completed sign-in and try again.');
-      }
-    }, 1500); // Wait 1.5s for React to render
-  }
-
-  // Open login tab
-  chrome.tabs.create({ url: loginUrl }, (tab) => {
-    signInTabId = tab.id;
-
-    // Listen for tab URL changes and tab closure
-    chrome.tabs.onUpdated.addListener(onTabUpdated);
-    chrome.tabs.onRemoved.addListener(onTabRemoved);
-
-    // Timeout after 5 minutes
-    timeoutId = setTimeout(() => {
-      cleanup();
-      // Don't close the tab — user might still be working on it
-      signInTabId = null;
-    }, SIGN_IN_TIMEOUT_MS);
-  });
 }
 
 // ── Sign out ──
@@ -306,7 +229,10 @@ async function init() {
 
   // Wire up static buttons
   settingsLink.addEventListener('click', () => chrome.runtime.openOptionsPage());
-  signinBtn.addEventListener('click', startSignInFlow);
+  signinBtn.addEventListener('click', () => {
+    chrome.tabs.create({ url: `${appUrl}/login?extension=true` });
+    window.close();
+  });
   if (signoutLink) {
     signoutLink.addEventListener('click', (e) => {
       e.preventDefault();
@@ -332,8 +258,14 @@ async function init() {
     return;
   }
 
-  // Step 2: Read auth session from chrome.storage.local
-  const session = await getSessionFromStorage();
+  // Step 2: Check chrome.storage.local for existing tokens
+  let session = await getSessionFromStorage();
+
+  // Step 3: If no stored tokens, try fetching from server session
+  // (user may have just logged in via the browser)
+  if (!session) {
+    session = await fetchTokenFromServer();
+  }
 
   if (!session) {
     setState('signin');
@@ -353,7 +285,7 @@ async function init() {
     return;
   }
 
-  // Step 3: Load projects and show ready state
+  // Step 4: Load projects and show ready state
   await onAuthenticated();
 }
 
@@ -361,13 +293,11 @@ async function init() {
 
 async function onAuthenticated() {
   try {
-    // Fetch projects with capture counts
     const projects = await supabaseGet(
       'projects',
       '?select=id,name,is_inbox,created_at,captures(count)&order=is_inbox.desc,created_at.asc'
     );
 
-    // Populate dropdown
     projectSelect.innerHTML = '';
 
     for (const p of projects) {
@@ -413,7 +343,6 @@ async function onAuthenticated() {
 
     setState('ready');
   } catch (e) {
-    // Auth might have expired between storage read and API call
     if (e.message.includes('401') || e.message.includes('403')) {
       await clearSession();
       setState('signin');
@@ -447,7 +376,6 @@ async function handleSift() {
   setState('sifting');
 
   try {
-    // Step 1: Extract content via API
     const response = await fetch(`${appUrl}/api/fetch-url`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -460,8 +388,6 @@ async function handleSift() {
     }
 
     const data = await response.json();
-
-    // Step 2: Insert capture directly to Supabase
     const platform = data.platform || detectPlatform(currentTabUrl);
 
     const captureData = {
@@ -480,16 +406,13 @@ async function handleSift() {
 
     await supabasePost('captures', captureData);
 
-    // Save preferred project
     try {
       await chrome.storage.sync.set({ defaultProjectId: selectedProjectId });
     } catch (e) { /* ignore */ }
 
-    // Show success
     successText.textContent = `Sifted to ${selectedProjectName}`;
     setState('success');
 
-    // Auto-close after 2 seconds
     setTimeout(() => window.close(), 2000);
 
   } catch (e) {
