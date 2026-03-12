@@ -403,31 +403,55 @@ export function detectContentType(c: Capture): string {
 // Auto-detect content tag for display
 export function detectContentTag(c: { platform: Platform; title: string; body: string }): string {
   if (c.platform === 'reddit') return 'Discussion';
-  if (c.platform === 'twitter') return 'Thread';
   if (c.platform === 'github') return 'Repository';
 
-  // Article platform — check for Tutorial heuristics
   const titleLower = (c.title || '').toLowerCase();
   const bodyLower = (c.body || '').toLowerCase();
+  const body = c.body || '';
 
+  // Tutorial heuristics (applies to all platforms)
   const tutorialKeywords = /\b(how to|step[- ]by[- ]step|guide|tutorial|walkthrough|getting started)\b/i;
   if (tutorialKeywords.test(titleLower) || tutorialKeywords.test(bodyLower.slice(0, 500))) {
     return 'Tutorial';
   }
-
-  // Count numbered list items as tutorial signal
-  const numberedSteps = (c.body || '').match(/^\s*\d+\.\s+/gm);
+  const numberedSteps = body.match(/^\s*\d+\.\s+/gm);
   if (numberedSteps && numberedSteps.length >= 3) {
     return 'Tutorial';
   }
 
-  // Opinion heuristic — first-person perspective markers
+  // X/Twitter — differentiate Thread vs Article
+  if (c.platform === 'twitter') {
+    // Long-form X Articles (500+ words)
+    const wordCount = body.split(/\s+/).filter(Boolean).length;
+    if (wordCount >= 500) return 'Article';
+    return 'Thread';
+  }
+
+  // Article platform — check for Opinion heuristic
   const opinionMarkers = /\b(I think|I believe|in my opinion|in my experience|my take|I feel|I argue|my view)\b/i;
   if (opinionMarkers.test(bodyLower.slice(0, 1000))) {
     return 'Opinion';
   }
 
   return 'Article';
+}
+
+// Map platform to its display label used on cards
+const PLATFORM_TAG_LABELS: Record<Platform, string> = {
+  reddit: 'Reddit',
+  twitter: 'X',
+  github: 'GitHub',
+  article: 'Article',
+  other: 'Other',
+};
+
+// Returns the content tag only if it adds info beyond the platform badge
+export function getUniqueContentTag(c: { platform: Platform; title: string; body: string; contentTag?: string }): string | null {
+  const tag = c.contentTag || detectContentTag(c);
+  const platformLabel = PLATFORM_TAG_LABELS[c.platform] || c.platform;
+  // Don't show tag if it's the same text as the platform badge
+  if (tag.toLowerCase() === platformLabel.toLowerCase()) return null;
+  return tag;
 }
 
 // Normalize URL for duplicate comparison

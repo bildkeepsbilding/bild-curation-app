@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
-import { getProjects, getCaptures, getAllCaptures, getProjectMap, createProject, deleteProject, ensureInbox, addCapture, findCaptureByUrl, detectContentTag, INBOX_PROJECT_ID, type Project, type Capture } from '@/lib/db';
+import { getProjects, getCaptures, getAllCaptures, getProjectMap, createProject, deleteProject, ensureInbox, addCapture, findCaptureByUrl, getUniqueContentTag, INBOX_PROJECT_ID, type Project, type Capture } from '@/lib/db';
 
 interface ProjectWithCover extends Project {
   coverImage?: string;
@@ -493,7 +493,7 @@ export default function Home() {
                   <div className="capture-grid stagger-children">
                     {searchResults.map((capture) => {
                       const hasImage = capture.images && capture.images.length > 0 && capture.platform !== 'github';
-                      const tag = capture.contentTag || detectContentTag(capture);
+                      const tag = getUniqueContentTag(capture);
                       const projectName = searchProjectMap[capture.projectId]?.name || 'Unknown';
                       return (
                         <div
@@ -510,9 +510,11 @@ export default function Home() {
                                 <span className="px-2 py-0.5 rounded-md text-[10px] font-semibold" style={{ background: (platformColors[capture.platform] || platformColors.other) + 'dd', color: '#fff', backdropFilter: 'blur(4px)' }}>
                                   {capture.platform === 'twitter' ? 'X' : capture.platform === 'reddit' ? 'Reddit' : capture.platform === 'github' ? 'GitHub' : 'Article'}
                                 </span>
+                                {tag && (
                                 <span className="px-1.5 py-0.5 rounded text-[10px] font-medium" style={{ background: 'rgba(0,0,0,0.5)', color: 'var(--text-tertiary)', backdropFilter: 'blur(4px)' }}>
                                   {tag}
                                 </span>
+                                )}
                               </div>
                             </div>
                           )}
@@ -523,9 +525,11 @@ export default function Home() {
                                   <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold" style={{ background: (platformColors[capture.platform] || platformColors.other) + '20', color: platformColors[capture.platform] || platformColors.other }}>
                                     {capture.platform === 'twitter' ? 'X' : capture.platform === 'reddit' ? 'Reddit' : capture.platform === 'github' ? 'GitHub' : 'Article'}
                                   </span>
+                                  {tag && (
                                   <span className="px-1.5 py-0.5 rounded text-[10px] font-medium" style={{ background: 'var(--bg-hover)', color: 'var(--text-tertiary)' }}>
                                     {tag}
                                   </span>
+                                  )}
                                 </>
                               )}
                               <span className="px-1.5 py-0.5 rounded text-[10px] font-medium" style={{ background: 'var(--accent-dim)', color: 'var(--accent)' }}>
