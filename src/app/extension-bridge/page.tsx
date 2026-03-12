@@ -34,7 +34,7 @@ export default function ExtensionBridgePage() {
     let mounted = true;
 
     async function initialize() {
-      // Ensure Inbox exists
+      // Ensure Unsorted exists
       try {
         await ensureInbox();
       } catch (e) {

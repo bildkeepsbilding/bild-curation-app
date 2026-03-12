@@ -770,7 +770,7 @@ export default function ProjectPage() {
         </div>
       </header>
 
-      {/* ── Project Brief (hidden for Inbox) ── */}
+      {/* ── Project Brief (hidden for Unsorted) ── */}
       {!isInbox && (
         <div className="px-5 mb-4">
           <div className="rounded-xl overflow-hidden" style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border-subtle)' }}>
