@@ -402,37 +402,19 @@ export function detectContentType(c: Capture): string {
 
 // Auto-detect content tag for display
 export function detectContentTag(c: { platform: Platform; title: string; body: string }): string {
-  if (c.platform === 'reddit') return 'Discussion';
-  if (c.platform === 'github') return 'Repository';
-
-  const titleLower = (c.title || '').toLowerCase();
-  const bodyLower = (c.body || '').toLowerCase();
-  const body = c.body || '';
-
-  // Tutorial heuristics (applies to all platforms)
-  const tutorialKeywords = /\b(how to|step[- ]by[- ]step|guide|tutorial|walkthrough|getting started)\b/i;
-  if (tutorialKeywords.test(titleLower) || tutorialKeywords.test(bodyLower.slice(0, 500))) {
-    return 'Tutorial';
-  }
-  const numberedSteps = body.match(/^\s*\d+\.\s+/gm);
-  if (numberedSteps && numberedSteps.length >= 3) {
-    return 'Tutorial';
-  }
-
-  // X/Twitter — differentiate Thread vs Article
+  if (c.platform === 'reddit') return 'Post';
+  if (c.platform === 'github') return 'Repo';
   if (c.platform === 'twitter') {
-    // Long-form X Articles (500+ words)
+    const body = c.body || '';
     const wordCount = body.split(/\s+/).filter(Boolean).length;
     if (wordCount >= 500) return 'Article';
-    return 'Thread';
+    // Thread indicators: numbered tweets (1/ 2/), tweet separators, or multiple tweet blocks
+    const hasNumbering = /\b\d+\/\s/.test(body);
+    const hasSeparators = (body.match(/\n---\n/g) || []).length >= 1;
+    const hasTweetBlocks = (body.match(/@\w+\s*·/g) || []).length >= 2;
+    if (hasNumbering || hasSeparators || hasTweetBlocks) return 'Thread';
+    return 'Post';
   }
-
-  // Article platform — check for Opinion heuristic
-  const opinionMarkers = /\b(I think|I believe|in my opinion|in my experience|my take|I feel|I argue|my view)\b/i;
-  if (opinionMarkers.test(bodyLower.slice(0, 1000))) {
-    return 'Opinion';
-  }
-
   return 'Article';
 }
 
