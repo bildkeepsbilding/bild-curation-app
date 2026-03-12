@@ -1868,11 +1868,23 @@ export async function GET(request: NextRequest) {
   }
 }
 
+// CORS headers for Chrome extension requests
+const corsHeaders = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Methods': 'POST, OPTIONS',
+  'Access-Control-Allow-Headers': 'Content-Type',
+};
+
+// Handle preflight OPTIONS request
+export async function OPTIONS() {
+  return new NextResponse(null, { status: 204, headers: corsHeaders });
+}
+
 export async function POST(request: NextRequest) {
   try {
     const { url } = await request.json();
     if (!url || typeof url !== 'string') {
-      return NextResponse.json({ error: 'URL is required' }, { status: 400 });
+      return NextResponse.json({ error: 'URL is required' }, { status: 400, headers: corsHeaders });
     }
 
     let result;
@@ -1886,9 +1898,9 @@ export async function POST(request: NextRequest) {
       result = await fetchArticle(url);
     }
 
-    return NextResponse.json(result);
+    return NextResponse.json(result, { headers: corsHeaders });
   } catch (error) {
     console.error('Fetch error:', error);
-    return NextResponse.json({ error: error instanceof Error ? error.message : 'Failed to fetch URL' }, { status: 500 });
+    return NextResponse.json({ error: error instanceof Error ? error.message : 'Failed to fetch URL' }, { status: 500, headers: corsHeaders });
   }
 }
