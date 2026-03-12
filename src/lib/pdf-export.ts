@@ -220,6 +220,99 @@ function addImage(
   return y + imgH + 4;
 }
 
+// ── Shared capture renderer ──
+
+function renderCaptureSection(
+  doc: jsPDF,
+  c: Capture,
+  y: number,
+  imageMap: Map<string, ImageData>,
+): number {
+  // Add page break if not much space left for a new capture header
+  y = ensureSpace(doc, y, 40);
+
+  // Platform badge
+  const platformLabel = PLATFORM_DISPLAY[c.platform] || c.platform;
+  const badgeColor = PLATFORM_COLORS[c.platform] || PLATFORM_COLORS.other;
+  const badge = drawBadge(doc, platformLabel, MARGIN, y, badgeColor);
+  y = badge.endY + 4;
+
+  // Title
+  y = drawText(doc, c.title, MARGIN, y, { fontSize: 16, fontStyle: 'bold', color: [17, 17, 17] });
+  y += 1;
+
+  // Author · Date · Engagement
+  const metaParts = [c.author, formatDate(c.createdAt)];
+  const engagement = formatEngagement(c);
+  if (engagement) metaParts.push(engagement);
+  y = drawText(doc, metaParts.join('  ·  '), MARGIN, y, { fontSize: 9, color: [120, 120, 120] });
+  y += 3;
+
+  // Context for Claude
+  if (c.note) {
+    y = ensureSpace(doc, y, 12);
+    doc.setFillColor(29, 161, 242);
+    doc.rect(MARGIN, y - 1, 1.5, 0);
+
+    doc.setFont('helvetica', 'italic');
+    doc.setFontSize(9);
+    const noteLines = doc.splitTextToSize(c.note, CONTENT_W - 8);
+    const noteHeight = noteLines.length * (9 * 1.4 * 0.3528) + 2;
+
+    y = ensureSpace(doc, y, noteHeight + 4);
+    doc.setFillColor(240, 247, 255);
+    doc.rect(MARGIN, y - 2, CONTENT_W, noteHeight + 4, 'F');
+    doc.setFillColor(29, 161, 242);
+    doc.rect(MARGIN, y - 2, 1.5, noteHeight + 4, 'F');
+
+    y = drawText(doc, 'Context for Claude:', MARGIN + 5, y + 1, { fontSize: 8, fontStyle: 'bold', color: [29, 161, 242] });
+    y = drawText(doc, c.note, MARGIN + 5, y, { fontSize: 9, fontStyle: 'italic', color: [60, 60, 60], maxWidth: CONTENT_W - 10 });
+    y += 3;
+  }
+
+  // Body text with inline images
+  const bodyParts = c.body.split(/\[image:(https?:\/\/[^\]]+)\]/);
+  const usedImageUrls = new Set<string>();
+
+  for (let i = 0; i < bodyParts.length; i++) {
+    if (i % 2 === 0) {
+      const text = bodyParts[i].trim();
+      if (text) {
+        y = drawText(doc, text, MARGIN, y, { fontSize: 10, color: [51, 51, 51], lineHeight: 1.5 });
+        y += 2;
+      }
+    } else {
+      const imgUrl = bodyParts[i];
+      usedImageUrls.add(imgUrl);
+      const imgData = imageMap.get(imgUrl);
+      if (imgData) {
+        y = addImage(doc, imgData, y);
+      }
+    }
+  }
+
+  // Remaining images (not already inline)
+  const remainingImages = c.images.filter(img => !usedImageUrls.has(img));
+  for (const imgUrl of remainingImages) {
+    const imgData = imageMap.get(imgUrl);
+    if (imgData) {
+      y = addImage(doc, imgData, y);
+    }
+  }
+
+  // Source URL
+  y += 2;
+  y = ensureSpace(doc, y, 8);
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(8);
+  doc.setTextColor(29, 161, 242);
+  const urlText = c.url.length > 80 ? c.url.slice(0, 77) + '...' : c.url;
+  doc.textWithLink(urlText, MARGIN, y, { url: c.url });
+  y += 4;
+
+  return y;
+}
+
 // ── Main export function ──
 
 export async function exportProjectAsPdf(
@@ -269,95 +362,7 @@ export async function exportProjectAsPdf(
   for (let idx = 0; idx < filtered.length; idx++) {
     const c = filtered[idx];
     onProgress?.('Generating PDF...', `Capture ${idx + 1}/${filtered.length}`);
-
-    // Add page break if not much space left for a new capture header
-    y = ensureSpace(doc, y, 40);
-
-    // Platform badge
-    const platformLabel = PLATFORM_DISPLAY[c.platform] || c.platform;
-    const badgeColor = PLATFORM_COLORS[c.platform] || PLATFORM_COLORS.other;
-    const badge = drawBadge(doc, platformLabel, MARGIN, y, badgeColor);
-    y = badge.endY + 4;
-
-    // Title
-    y = drawText(doc, c.title, MARGIN, y, { fontSize: 16, fontStyle: 'bold', color: [17, 17, 17] });
-    y += 1;
-
-    // Author · Date · Engagement
-    const metaParts = [c.author, formatDate(c.createdAt)];
-    const engagement = formatEngagement(c);
-    if (engagement) metaParts.push(engagement);
-    y = drawText(doc, metaParts.join('  ·  '), MARGIN, y, { fontSize: 9, color: [120, 120, 120] });
-    y += 3;
-
-    // Context for Claude
-    if (c.note) {
-      y = ensureSpace(doc, y, 12);
-      // Draw accent bar
-      doc.setFillColor(29, 161, 242);
-      doc.rect(MARGIN, y - 1, 1.5, 0);
-
-      // Measure the note text height first for the bar
-      doc.setFont('helvetica', 'italic');
-      doc.setFontSize(9);
-      const noteLines = doc.splitTextToSize(c.note, CONTENT_W - 8);
-      const noteHeight = noteLines.length * (9 * 1.4 * 0.3528) + 2;
-
-      y = ensureSpace(doc, y, noteHeight + 4);
-      doc.setFillColor(240, 247, 255);
-      doc.rect(MARGIN, y - 2, CONTENT_W, noteHeight + 4, 'F');
-      doc.setFillColor(29, 161, 242);
-      doc.rect(MARGIN, y - 2, 1.5, noteHeight + 4, 'F');
-
-      y = drawText(doc, 'Context for Claude:', MARGIN + 5, y + 1, { fontSize: 8, fontStyle: 'bold', color: [29, 161, 242] });
-      y = drawText(doc, c.note, MARGIN + 5, y, { fontSize: 9, fontStyle: 'italic', color: [60, 60, 60], maxWidth: CONTENT_W - 10 });
-      y += 3;
-    }
-
-    // Body text with inline images
-    const bodyParts = c.body.split(/\[image:(https?:\/\/[^\]]+)\]/);
-    // bodyParts alternates: [text, url, text, url, ...text]
-    const usedImageUrls = new Set<string>();
-
-    for (let i = 0; i < bodyParts.length; i++) {
-      if (i % 2 === 0) {
-        // Text part
-        const text = bodyParts[i].trim();
-        if (text) {
-          y = drawText(doc, text, MARGIN, y, { fontSize: 10, color: [51, 51, 51], lineHeight: 1.5 });
-          y += 2;
-        }
-      } else {
-        // Image URL
-        const imgUrl = bodyParts[i];
-        usedImageUrls.add(imgUrl);
-        const imgData = imageMap.get(imgUrl);
-        if (imgData) {
-          y = addImage(doc, imgData, y);
-        }
-      }
-    }
-
-    // Remaining images (not already inline)
-    const remainingImages = c.images.filter(img => !usedImageUrls.has(img));
-    if (remainingImages.length > 0) {
-      for (const imgUrl of remainingImages) {
-        const imgData = imageMap.get(imgUrl);
-        if (imgData) {
-          y = addImage(doc, imgData, y);
-        }
-      }
-    }
-
-    // Source URL
-    y += 2;
-    y = ensureSpace(doc, y, 8);
-    doc.setFont('helvetica', 'normal');
-    doc.setFontSize(8);
-    doc.setTextColor(29, 161, 242);
-    const urlText = c.url.length > 80 ? c.url.slice(0, 77) + '...' : c.url;
-    doc.textWithLink(urlText, MARGIN, y, { url: c.url });
-    y += 4;
+    y = renderCaptureSection(doc, c, y, imageMap);
 
     // Separator between captures
     if (idx < filtered.length - 1) {
@@ -393,6 +398,34 @@ export async function exportProjectAsPdf(
       y = drawText(doc, `•  ${line}`, MARGIN + 2, y, { fontSize: 10, color: [80, 80, 80] });
     }
   }
+
+  return doc.output('blob');
+}
+
+// ── Single-capture PDF export ──
+
+export async function exportCapturePdf(
+  project: Project,
+  capture: Capture,
+  onProgress?: (stage: string) => void,
+): Promise<Blob> {
+  onProgress?.('Fetching images...');
+  const imageMap = await prefetchImages([capture]);
+
+  onProgress?.('Generating PDF...');
+  const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+  let y = MARGIN;
+
+  // Header — project name
+  y = drawText(doc, project.name, MARGIN, y, { fontSize: 20, fontStyle: 'bold', color: [17, 17, 17] });
+  y += 1;
+  if (project.brief) {
+    y = drawText(doc, project.brief, MARGIN, y, { fontSize: 10, color: [120, 120, 120] });
+  }
+  y = drawSeparator(doc, y + 2);
+
+  // Render the single capture
+  y = renderCaptureSection(doc, capture, y, imageMap);
 
   return doc.output('blob');
 }

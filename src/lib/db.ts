@@ -224,6 +224,16 @@ export async function updateCapture(id: string, updates: Partial<Capture>): Prom
   });
 }
 
+export async function moveCapture(captureId: string, fromProjectId: string, toProjectId: string): Promise<void> {
+  await updateCapture(captureId, { projectId: toProjectId });
+  // Update capture counts on both projects
+  const [fromCaptures, toCaptures] = await Promise.all([getCaptures(fromProjectId), getCaptures(toProjectId)]);
+  await Promise.all([
+    updateProject(fromProjectId, { captureCount: fromCaptures.length }),
+    updateProject(toProjectId, { captureCount: toCaptures.length }),
+  ]);
+}
+
 // Build engagement string for a capture based on platform metadata
 export function formatEngagement(c: Capture): string {
   const m = c.metadata;
