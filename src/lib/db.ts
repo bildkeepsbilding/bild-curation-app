@@ -285,6 +285,28 @@ export async function getAllCaptures(): Promise<Capture[]> {
   });
 }
 
+// Re-run detectContentTag on all existing captures to update cached tags
+export async function retagAllCaptures(): Promise<number> {
+  const db = await openDB();
+  const captures = await getAllCaptures();
+  let updated = 0;
+  await new Promise<void>((resolve, reject) => {
+    const tx = db.transaction('captures', 'readwrite');
+    const store = tx.objectStore('captures');
+    for (const c of captures) {
+      const newTag = detectContentTag(c);
+      if (c.contentTag !== newTag) {
+        c.contentTag = newTag;
+        store.put(c);
+        updated++;
+      }
+    }
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+  return updated;
+}
+
 export async function getProjectMap(): Promise<Record<string, Project>> {
   const projects = await getProjects();
   const map: Record<string, Project> = {};
@@ -408,10 +430,13 @@ export function detectContentTag(c: { platform: Platform; title: string; body: s
     const body = c.body || '';
     const wordCount = body.split(/\s+/).filter(Boolean).length;
     if (wordCount >= 500) return 'Article';
-    // Thread indicators: numbered tweets (1/ 2/), tweet separators, or multiple tweet blocks
-    const hasNumbering = /\b\d+\/\s/.test(body);
-    const hasSeparators = (body.match(/\n---\n/g) || []).length >= 1;
-    const hasTweetBlocks = (body.match(/@\w+\s*·/g) || []).length >= 2;
+    // Thread indicators — must be unambiguous multi-tweet evidence
+    // 1/ 2/ numbering at start of line (not mid-sentence fractions like "24/7")
+    const hasNumbering = /^[1１]\/ /m.test(body) && /^[2-9２-９]\/ /m.test(body);
+    // Multiple tweet separators (one could be formatting; two+ means thread)
+    const hasSeparators = (body.match(/\n---\n/g) || []).length >= 2;
+    // Multiple @user · timestamp blocks (each = a distinct tweet in thread)
+    const hasTweetBlocks = (body.match(/^@\w+\s*·/gm) || []).length >= 2;
     if (hasNumbering || hasSeparators || hasTweetBlocks) return 'Thread';
     return 'Post';
   }
