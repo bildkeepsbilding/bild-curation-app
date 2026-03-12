@@ -202,3 +202,10 @@ body {
   -webkit-box-orient: vertical;
   overflow: hidden;
 }
+
+/* Touch devices: make hover-only elements visible */
+@media (hover: none) {
+  .touch-visible {
+    opacity: 0.6 !important;
+  }
+}

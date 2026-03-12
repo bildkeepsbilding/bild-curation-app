@@ -654,7 +654,7 @@ export default function ProjectPage() {
             </p>
           </div>
           {!isInbox && captures.length > 0 && (
-            <div className="flex-shrink-0 ml-3">
+            <div className="flex-shrink-0 ml-3 hidden sm:block">
               <button onClick={handleExport} disabled={exporting} className="flex items-center gap-1.5 px-4 py-2 rounded-full text-xs font-semibold transition-all" style={{ background: exporting ? 'var(--bg-elevated)' : 'var(--accent)', color: exporting ? 'var(--text-secondary)' : 'var(--bg)', border: exporting ? '1px solid var(--border)' : '1px solid var(--accent)', opacity: exporting ? 0.8 : 1 }}>
                 {exporting ? (
                   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" className="animate-spin"><circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="2" opacity="0.25"/><path d="M12 2a10 10 0 019.75 7.75" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/></svg>
@@ -757,7 +757,7 @@ export default function ProjectPage() {
       )}
 
       {/* ── Captures Grid ── */}
-      <div className="px-5 pb-8">
+      <div className="px-5 pb-24 sm:pb-8">
         {captures.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-16 text-center">
             <div className="w-14 h-14 rounded-2xl flex items-center justify-center mb-3" style={{ background: 'var(--accent-dim)' }}>
@@ -787,7 +787,7 @@ export default function ProjectPage() {
                     {filteredCaptures.indexOf(capture) > 0 && (
                       <button
                         onClick={(e) => { e.stopPropagation(); handleReorder(capture.id, 'up'); }}
-                        className="w-6 h-6 flex items-center justify-center rounded-full transition-all opacity-0 group-hover:opacity-60 hover:!opacity-100"
+                        className="w-6 h-6 flex items-center justify-center rounded-full transition-all opacity-0 group-hover:opacity-60 hover:!opacity-100 touch-visible"
                         style={{ background: 'var(--bg-elevated)cc', backdropFilter: 'blur(8px)' }}
                         title="Move up"
                       >
@@ -797,7 +797,7 @@ export default function ProjectPage() {
                     {filteredCaptures.indexOf(capture) < filteredCaptures.length - 1 && (
                       <button
                         onClick={(e) => { e.stopPropagation(); handleReorder(capture.id, 'down'); }}
-                        className="w-6 h-6 flex items-center justify-center rounded-full transition-all opacity-0 group-hover:opacity-60 hover:!opacity-100"
+                        className="w-6 h-6 flex items-center justify-center rounded-full transition-all opacity-0 group-hover:opacity-60 hover:!opacity-100 touch-visible"
                         style={{ background: 'var(--bg-elevated)cc', backdropFilter: 'blur(8px)' }}
                         title="Move down"
                       >
@@ -933,8 +933,8 @@ export default function ProjectPage() {
 
       {/* ── Delete Confirmation Modal ── */}
       {confirmDelete && (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center" style={{ background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(4px)' }}>
-          <div className="w-full max-w-sm mx-4 p-5 rounded-2xl" style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border)' }}>
+        <div className="fixed inset-0 z-[60] flex items-end sm:items-center justify-center" style={{ background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(4px)' }}>
+          <div className="w-full sm:max-w-sm sm:mx-4 p-5 rounded-t-2xl sm:rounded-2xl" style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border)' }}>
             <h3 className="text-base font-semibold mb-2" style={{ color: 'var(--text-primary)' }}>Delete this capture?</h3>
             <p className="text-sm mb-5" style={{ color: 'var(--text-tertiary)' }}>This can&apos;t be undone.</p>
             <div className="flex gap-2 justify-end">
@@ -947,8 +947,8 @@ export default function ProjectPage() {
 
       {/* ── Move to Project Modal ── */}
       {moveTarget && (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center" style={{ background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(4px)' }}>
-          <div className="w-full max-w-sm mx-4 rounded-2xl overflow-hidden" style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border)' }}>
+        <div className="fixed inset-0 z-[60] flex items-end sm:items-center justify-center" style={{ background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(4px)' }}>
+          <div className="w-full sm:max-w-sm sm:mx-4 rounded-t-2xl sm:rounded-2xl overflow-hidden" style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border)' }}>
             <div className="px-5 py-4" style={{ borderBottom: '1px solid var(--border-subtle)' }}>
               <h3 className="text-base font-semibold" style={{ color: 'var(--text-primary)' }}>Move to project</h3>
               <p className="text-xs mt-1" style={{ color: 'var(--text-tertiary)' }}>Select a destination for &ldquo;{truncate(moveTarget.title, 40)}&rdquo;</p>
@@ -974,8 +974,8 @@ export default function ProjectPage() {
 
       {/* ── Copy to Project Modal ── */}
       {copyTarget && (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center" style={{ background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(4px)' }}>
-          <div className="w-full max-w-sm mx-4 rounded-2xl overflow-hidden" style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border)' }}>
+        <div className="fixed inset-0 z-[60] flex items-end sm:items-center justify-center" style={{ background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(4px)' }}>
+          <div className="w-full sm:max-w-sm sm:mx-4 rounded-t-2xl sm:rounded-2xl overflow-hidden" style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border)' }}>
             <div className="px-5 py-4" style={{ borderBottom: '1px solid var(--border-subtle)' }}>
               <h3 className="text-base font-semibold" style={{ color: 'var(--text-primary)' }}>Copy to project</h3>
               <p className="text-xs mt-1" style={{ color: 'var(--text-tertiary)' }}>Copy &ldquo;{truncate(copyTarget.title, 40)}&rdquo; — original stays in this project</p>
@@ -1001,14 +1001,30 @@ export default function ProjectPage() {
 
       {/* ── Delete Project Confirmation Modal ── */}
       {confirmDeleteProject && (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center" style={{ background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(4px)' }}>
-          <div className="w-full max-w-sm mx-4 p-5 rounded-2xl" style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border)' }}>
+        <div className="fixed inset-0 z-[60] flex items-end sm:items-center justify-center" style={{ background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(4px)' }}>
+          <div className="w-full sm:max-w-sm sm:mx-4 p-5 rounded-t-2xl sm:rounded-2xl" style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border)' }}>
             <h3 className="text-base font-semibold mb-2" style={{ color: 'var(--text-primary)' }}>Delete project?</h3>
             <p className="text-sm mb-5" style={{ color: 'var(--text-tertiary)' }}>Delete &ldquo;{project.name}&rdquo; and all its captures? This can&apos;t be undone.</p>
             <div className="flex gap-2 justify-end">
               <button onClick={() => setConfirmDeleteProject(false)} className="px-4 py-2 rounded-xl text-sm" style={{ color: 'var(--text-secondary)', border: '1px solid var(--border)' }}>Cancel</button>
               <button onClick={handleDeleteProject} className="px-4 py-2 rounded-xl text-sm font-semibold text-white" style={{ background: 'var(--danger)' }}>Delete</button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Mobile Sticky Export Bar ── */}
+      {!isInbox && captures.length > 0 && (
+        <div className="fixed bottom-0 left-0 right-0 z-40 sm:hidden safe-bottom" style={{ background: 'var(--bg-elevated)ee', backdropFilter: 'blur(12px)', borderTop: '1px solid var(--border)' }}>
+          <div className="px-5 py-3">
+            <button onClick={handleExport} disabled={exporting} className="w-full flex items-center justify-center gap-2 py-3 rounded-xl text-sm font-semibold transition-all" style={{ background: exporting ? 'var(--bg-hover)' : 'var(--accent)', color: exporting ? 'var(--text-secondary)' : 'var(--bg)', border: exporting ? '1px solid var(--border)' : '1px solid var(--accent)' }}>
+              {exporting ? (
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" className="animate-spin"><circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="2" opacity="0.25"/><path d="M12 2a10 10 0 019.75 7.75" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/></svg>
+              ) : (
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M20 12v6a2 2 0 01-2 2H6a2 2 0 01-2-2v-6M12 3v12m0 0l-4-4m4 4l4-4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" /></svg>
+              )}
+              {exporting ? exportStatus || 'Packaging...' : 'Package for Claude'}
+            </button>
           </div>
         </div>
       )}

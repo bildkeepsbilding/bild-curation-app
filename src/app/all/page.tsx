@@ -555,8 +555,8 @@ export default function AllCapturesPage() {
 
       {/* Delete Modal */}
       {confirmDelete && (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center" style={{ background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(4px)' }}>
-          <div className="w-full max-w-sm mx-4 p-5 rounded-2xl" style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border)' }}>
+        <div className="fixed inset-0 z-[60] flex items-end sm:items-center justify-center" style={{ background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(4px)' }}>
+          <div className="w-full sm:max-w-sm sm:mx-4 p-5 rounded-t-2xl sm:rounded-2xl" style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border)' }}>
             <h3 className="text-base font-semibold mb-2" style={{ color: 'var(--text-primary)' }}>Delete this capture?</h3>
             <p className="text-sm mb-5" style={{ color: 'var(--text-tertiary)' }}>This can&apos;t be undone.</p>
             <div className="flex gap-2 justify-end">
@@ -569,8 +569,8 @@ export default function AllCapturesPage() {
 
       {/* Move to Project Modal */}
       {moveTarget && (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center" style={{ background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(4px)' }}>
-          <div className="w-full max-w-sm mx-4 rounded-2xl overflow-hidden" style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border)' }}>
+        <div className="fixed inset-0 z-[60] flex items-end sm:items-center justify-center" style={{ background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(4px)' }}>
+          <div className="w-full sm:max-w-sm sm:mx-4 rounded-t-2xl sm:rounded-2xl overflow-hidden" style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border)' }}>
             <div className="px-5 py-4" style={{ borderBottom: '1px solid var(--border-subtle)' }}>
               <h3 className="text-base font-semibold" style={{ color: 'var(--text-primary)' }}>Move to project</h3>
               <p className="text-xs mt-1" style={{ color: 'var(--text-tertiary)' }}>Select a destination for &ldquo;{truncate(moveTarget.title, 40)}&rdquo;</p>
@@ -596,8 +596,8 @@ export default function AllCapturesPage() {
 
       {/* Copy to Project Modal */}
       {copyTarget && (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center" style={{ background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(4px)' }}>
-          <div className="w-full max-w-sm mx-4 rounded-2xl overflow-hidden" style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border)' }}>
+        <div className="fixed inset-0 z-[60] flex items-end sm:items-center justify-center" style={{ background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(4px)' }}>
+          <div className="w-full sm:max-w-sm sm:mx-4 rounded-t-2xl sm:rounded-2xl overflow-hidden" style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border)' }}>
             <div className="px-5 py-4" style={{ borderBottom: '1px solid var(--border-subtle)' }}>
               <h3 className="text-base font-semibold" style={{ color: 'var(--text-primary)' }}>Copy to project</h3>
               <p className="text-xs mt-1" style={{ color: 'var(--text-tertiary)' }}>Copy &ldquo;{truncate(copyTarget.title, 40)}&rdquo; — original stays in current project</p>
