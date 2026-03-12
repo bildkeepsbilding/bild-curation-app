@@ -952,6 +952,7 @@ async function fetchViaFxTwitter(username: string, statusId: string): Promise<{
   date: string | null;
   isNoteTweet: boolean;
   isArticle: boolean;
+  replyingTo: string | null;
 } | null> {
   try {
     const response = await fetch(`https://api.fxtwitter.com/${username}/status/${statusId}`, {
@@ -1066,6 +1067,7 @@ async function fetchViaFxTwitter(username: string, statusId: string): Promise<{
       date: tweet.created_at || null,
       isNoteTweet: tweet.is_note_tweet || false,
       isArticle,
+      replyingTo: tweet.replying_to || null,
     };
   } catch (e) {
     console.error('FxTwitter failed:', e);
@@ -1251,7 +1253,8 @@ async function fetchViaOEmbed(url: string): Promise<{
 async function fetchTwitter(url: string) {
   const { username, statusId } = parseTwitterUrl(url);
 
-  // ── Thread expansion: try to fetch full self-thread first ──
+  // ── Thread expansion: try to fetch full self-thread ──
+  // Strategy: backward-walk via replying_to_status, then forward-walk from root
   const threadResult = await fetchThreadViaFxTwitter(username, statusId);
   if (threadResult) {
     const { tweets, rootTweet } = threadResult;
@@ -1369,7 +1372,20 @@ async function fetchTwitter(url: string) {
   // Clean up the body text
   bestBody = bestBody
     .replace(/https:\/\/t\.co\/\w+/g, '') // Remove t.co links
+    .replace(/\ufffc/g, '') // Remove object replacement characters
     .trim();
+
+  // Detect thread root: first tweet in a self-reply thread that has continuation
+  // If the tweet has self-replies (high reply count, no replying_to, text ends with teaser),
+  // note it so the user knows there's more content
+  const isThreadRoot = !fxResult?.isNoteTweet && !isArticle &&
+    replies > 3 &&
+    fxResult && !fxResult.replyingTo &&
+    /(:|\.\.\.|…|👇|⬇️|🧵)\s*$/.test(bestBody.trim());
+
+  if (isThreadRoot) {
+    bestBody += `\n\n[Thread continues with ${replies} replies — link a reply tweet to capture the full thread]`;
+  }
 
   const title = isArticle
     ? bestBody.split('\n')[0]?.slice(0, 120) || 'X Article'
@@ -1388,6 +1404,7 @@ async function fetchTwitter(url: string) {
       views: views || null,
       date,
       isArticle,
+      isThreadRoot,
       source,
     },
   };
