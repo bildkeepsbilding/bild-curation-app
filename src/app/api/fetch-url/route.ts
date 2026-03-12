@@ -1761,10 +1761,19 @@ async function fetchArticle(url: string) {
   const domain = new URL(url).hostname.replace('www.', '');
   const author = substackAuthor || metaAuthor || jsonLdAuthor || ogSiteName || domain;
 
+  // Resolve relative URLs to absolute using the page URL as base
+  const baseUrl = new URL(url);
+  function resolveUrl(src: string): string {
+    if (!src) return '';
+    if (src.startsWith('http://') || src.startsWith('https://')) return src;
+    if (src.startsWith('//')) return baseUrl.protocol + src;
+    try { return new URL(src, baseUrl.origin).href; } catch { return src; }
+  }
+
   // Collect images — OG image, twitter image, JSON-LD image
   const images: string[] = [];
   const heroImage = ogImage || twitterImage || jsonLdImage;
-  if (heroImage) images.push(heroImage);
+  if (heroImage) images.push(resolveUrl(heroImage));
 
   // Extract inline images from article content (limit to a few high-quality ones)
   const imgRegex = /<img[^>]+src=["']([^"']+)["'][^>]*>/gi;
@@ -1779,10 +1788,11 @@ async function fetchArticle(url: string) {
     // Check for width/height attributes suggesting small images
     const widthMatch = imgMatch[0].match(/width=["']?(\d+)/i);
     if (widthMatch && parseInt(widthMatch[1]) < 100) continue;
-    const normalizedSrc = src.toLowerCase();
+    const resolved = resolveUrl(src);
+    const normalizedSrc = resolved.toLowerCase();
     if (!seenImages.has(normalizedSrc)) {
       seenImages.add(normalizedSrc);
-      images.push(src);
+      images.push(resolved);
     }
   }
 
