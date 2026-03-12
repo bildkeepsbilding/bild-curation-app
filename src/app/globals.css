@@ -222,6 +222,33 @@ body {
   pointer-events: none;
 }
 
+/* Skeleton shimmer animation */
+@keyframes shimmer {
+  0% { background-position: -400px 0; }
+  100% { background-position: 400px 0; }
+}
+
+.skeleton {
+  background: linear-gradient(90deg, var(--bg-elevated) 25%, var(--bg-hover) 50%, var(--bg-elevated) 75%);
+  background-size: 800px 100%;
+  animation: shimmer 1.8s ease-in-out infinite;
+  border-radius: 8px;
+}
+
+.skeleton-rounded {
+  border-radius: 12px;
+}
+
+/* Optimistic capture card pulse */
+@keyframes optimisticPulse {
+  0%, 100% { opacity: 0.6; }
+  50% { opacity: 1; }
+}
+
+.optimistic-card {
+  animation: optimisticPulse 1.5s ease-in-out infinite;
+}
+
 /* Touch devices: make hover-only elements visible */
 @media (hover: none) {
   .touch-visible {
