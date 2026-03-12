@@ -2,22 +2,28 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
-import { getProjects, getCaptures, createProject, deleteProject, type Project } from '@/lib/db';
+import { getProjects, getCaptures, createProject, deleteProject, ensureInbox, addCapture, INBOX_PROJECT_ID, type Project, type Capture } from '@/lib/db';
 
 interface ProjectWithCover extends Project {
   coverImage?: string;
+  latestTitle?: string;
   platforms: string[];
 }
 
 export default function Home() {
   const router = useRouter();
   const [projects, setProjects] = useState<ProjectWithCover[]>([]);
+  const [inboxProject, setInboxProject] = useState<ProjectWithCover | null>(null);
   const [loading, setLoading] = useState(true);
   const [showCreate, setShowCreate] = useState(false);
   const [newName, setNewName] = useState('');
   const [newBrief, setNewBrief] = useState('');
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
+  const [urlInput, setUrlInput] = useState('');
+  const [fetching, setFetching] = useState(false);
+  const [fetchError, setFetchError] = useState('');
   const inputRef = useRef<HTMLInputElement>(null);
+  const urlInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     loadProjects();
@@ -31,25 +37,75 @@ export default function Home() {
 
   async function loadProjects() {
     try {
+      // Ensure Inbox exists
+      await ensureInbox();
+
       const p = await getProjects();
-      // Fetch cover images and platform info for each project
+      // Enrich all projects with cover images, latest title, platform info
       const enriched: ProjectWithCover[] = await Promise.all(
         p.map(async (project) => {
           try {
             const captures = await getCaptures(project.id);
+            // Most recent capture with images for cover
             const coverImage = captures.find(c => c.images && c.images.length > 0)?.images[0];
+            const latestTitle = captures.length > 0 ? captures[0].title : undefined;
             const platforms = [...new Set(captures.map(c => c.platform))];
-            return { ...project, coverImage, platforms };
+            return { ...project, coverImage, latestTitle, platforms };
           } catch {
             return { ...project, platforms: [] };
           }
         })
       );
-      setProjects(enriched);
+
+      // Separate Inbox from regular projects
+      const inbox = enriched.find(p => p.id === INBOX_PROJECT_ID) || null;
+      const regular = enriched.filter(p => p.id !== INBOX_PROJECT_ID);
+
+      setInboxProject(inbox);
+      setProjects(regular);
     } catch (e) {
       console.error('Failed to load projects:', e);
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function handleQuickCapture() {
+    const url = urlInput.trim();
+    if (!url) return;
+
+    setFetching(true);
+    setFetchError('');
+
+    try {
+      const response = await fetch('/api/fetch-url', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url }),
+      });
+
+      if (!response.ok) {
+        const err = await response.json().catch(() => ({}));
+        throw new Error(err.error || `Failed to fetch (${response.status})`);
+      }
+
+      const data = await response.json();
+      await addCapture(
+        INBOX_PROJECT_ID,
+        url,
+        data.title || url,
+        data.body || '',
+        data.author || '',
+        data.images || [],
+        data.metadata || {},
+      );
+
+      setUrlInput('');
+      await loadProjects();
+    } catch (e) {
+      setFetchError(e instanceof Error ? e.message : 'Failed to capture');
+    } finally {
+      setFetching(false);
     }
   }
 
@@ -101,6 +157,8 @@ export default function Home() {
     other: '#6B7280',
   };
 
+  const regularProjectCount = projects.length;
+
   return (
     <main className="min-h-dvh safe-top safe-bottom">
       <header className="px-5 pt-8 pb-6 flex items-end justify-between max-w-5xl mx-auto">
@@ -109,7 +167,7 @@ export default function Home() {
             Bild
           </h1>
           <p className="text-sm mt-1" style={{ color: 'var(--text-tertiary)' }}>
-            {projects.length} project{projects.length !== 1 ? 's' : ''}
+            {regularProjectCount} project{regularProjectCount !== 1 ? 's' : ''}
           </p>
         </div>
         <button
@@ -187,103 +245,187 @@ export default function Home() {
           <div className="flex items-center justify-center py-20">
             <div className="w-5 h-5 rounded-full border-2 animate-spin" style={{ borderColor: 'var(--border)', borderTopColor: 'var(--accent)' }} />
           </div>
-        ) : projects.length === 0 ? (
-          <div className="flex flex-col items-center justify-center py-20 text-center">
-            <div className="w-20 h-20 rounded-2xl flex items-center justify-center mb-4" style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border)' }}>
-              <svg width="32" height="32" viewBox="0 0 24 24" fill="none" style={{ color: 'var(--text-tertiary)' }}>
-                <rect x="3" y="3" width="18" height="18" rx="3" stroke="currentColor" strokeWidth="1.5" />
-                <path d="M3 9h18" stroke="currentColor" strokeWidth="1.5" />
-                <circle cx="6.5" cy="6" r="0.75" fill="currentColor" />
-                <circle cx="9.5" cy="6" r="0.75" fill="currentColor" />
-              </svg>
-            </div>
-            <p className="text-base font-medium" style={{ color: 'var(--text-secondary)' }}>No projects yet</p>
-            <p className="text-sm mt-1" style={{ color: 'var(--text-tertiary)' }}>Create one to start curating</p>
-          </div>
         ) : (
-          <div className="project-grid stagger-children">
-            {projects.map((project) => (
-              <div
-                key={project.id}
-                className="capture-card group rounded-2xl overflow-hidden cursor-pointer"
-                style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border-subtle)' }}
-                onClick={() => router.push(`/project/${project.id}`)}
-              >
-                {/* Cover image or gradient placeholder */}
-                <div className="relative h-36 overflow-hidden" style={{ background: 'var(--bg-hover)' }}>
-                  {project.coverImage ? (
-                    <img
-                      src={project.coverImage}
-                      alt=""
-                      className="w-full h-full object-cover"
-                      referrerPolicy="no-referrer"
-                      onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
-                    />
+          <>
+            {/* Quick Capture to Inbox */}
+            <div className="mb-6">
+              <label className="text-xs font-semibold tracking-wide uppercase mb-2 block" style={{ color: 'var(--text-tertiary)' }}>
+                Quick capture to Inbox
+              </label>
+              <div className="flex gap-2">
+                <input
+                  ref={urlInputRef}
+                  type="url"
+                  value={urlInput}
+                  onChange={(e) => { setUrlInput(e.target.value); setFetchError(''); }}
+                  onKeyDown={(e) => e.key === 'Enter' && urlInput.trim() && !fetching && handleQuickCapture()}
+                  placeholder="Paste a URL..."
+                  disabled={fetching}
+                  className="flex-1 px-4 py-3 rounded-xl text-sm outline-none disabled:opacity-50"
+                  style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border)', color: 'var(--text-primary)' }}
+                />
+                <button
+                  onClick={handleQuickCapture}
+                  disabled={!urlInput.trim() || fetching}
+                  className="px-5 py-3 rounded-xl text-sm font-semibold transition-all active:scale-95 disabled:opacity-30 flex items-center gap-2"
+                  style={{ background: 'var(--accent)', color: 'var(--bg)' }}
+                >
+                  {fetching ? (
+                    <div className="w-4 h-4 rounded-full border-2 animate-spin" style={{ borderColor: 'var(--bg)', borderTopColor: 'transparent' }} />
                   ) : (
-                    <div className="w-full h-full flex items-center justify-center" style={{
-                      background: `linear-gradient(135deg, var(--bg-hover) 0%, var(--bg-elevated) 100%)`
-                    }}>
-                      <svg width="40" height="40" viewBox="0 0 24 24" fill="none" style={{ color: 'var(--border)' }}>
-                        <rect x="3" y="3" width="18" height="18" rx="3" stroke="currentColor" strokeWidth="1.5" />
-                        <path d="M3 16l5-5 4 4 3-3 6 6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-                        <circle cx="8.5" cy="8.5" r="1.5" stroke="currentColor" strokeWidth="1.5" />
-                      </svg>
-                    </div>
+                    <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                      <path d="M8 2v8M4 6l4 4 4-4" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                      <path d="M2 12h12" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+                    </svg>
                   )}
-                  {/* Gradient fade at bottom */}
-                  <div className="absolute inset-x-0 bottom-0 h-16" style={{
-                    background: 'linear-gradient(to top, var(--bg-elevated), transparent)'
-                  }} />
-                  {/* Capture count badge */}
-                  <div className="absolute top-3 right-3 px-2.5 py-1 rounded-full text-xs font-semibold" style={{
-                    background: 'rgba(0,0,0,0.6)',
-                    backdropFilter: 'blur(8px)',
-                    color: 'var(--text-primary)'
-                  }}>
-                    {project.captureCount || 0} capture{(project.captureCount || 0) !== 1 ? 's' : ''}
-                  </div>
-                  {/* Delete button */}
-                  <button
-                    onClick={(e) => { e.stopPropagation(); setDeleteConfirm(project.id); }}
-                    className="absolute top-3 left-3 p-1.5 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity"
-                    style={{ background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(8px)', color: 'var(--text-secondary)' }}
-                  >
-                    <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" /></svg>
-                  </button>
-                </div>
+                  Capture
+                </button>
+              </div>
+              {fetchError && (
+                <p className="text-xs mt-1.5 px-1" style={{ color: 'var(--danger)' }}>{fetchError}</p>
+              )}
+            </div>
 
-                {/* Card body */}
-                <div className="p-4">
-                  <h3 className="text-lg font-semibold truncate" style={{ color: 'var(--text-primary)' }}>
-                    {project.name}
-                  </h3>
-                  {project.brief && (
-                    <p className="text-xs mt-1 line-clamp-2" style={{ color: 'var(--text-tertiary)', lineHeight: 1.5 }}>
-                      {project.brief}
-                    </p>
-                  )}
-                  <div className="flex items-center gap-3 mt-2">
-                    {/* Platform dots */}
-                    {project.platforms.length > 0 && (
-                      <div className="flex items-center gap-1">
-                        {project.platforms.map(p => (
-                          <div
-                            key={p}
-                            className="w-2 h-2 rounded-full"
-                            style={{ background: platformColors[p] || platformColors.other }}
-                            title={p}
-                          />
-                        ))}
-                      </div>
-                    )}
-                    <span className="text-xs" style={{ color: 'var(--text-tertiary)' }}>
-                      {formatDate(project.updatedAt)}
-                    </span>
+            {/* Inbox Card */}
+            {inboxProject && (
+              <div
+                className="inbox-card rounded-2xl p-4 cursor-pointer mb-6"
+                onClick={() => router.push(`/project/${INBOX_PROJECT_ID}`)}
+              >
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0" style={{ background: 'var(--accent-dim)' }}>
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" style={{ color: 'var(--accent)' }}>
+                      <path d="M3 8l3.89 5.42a2 2 0 001.64.86h6.94a2 2 0 001.64-.86L21 8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                      <rect x="3" y="4" width="18" height="16" rx="2" stroke="currentColor" strokeWidth="1.5" />
+                    </svg>
                   </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2">
+                      <h3 className="text-base font-semibold" style={{ color: 'var(--text-primary)' }}>Inbox</h3>
+                      <span className="text-xs px-2 py-0.5 rounded-full font-medium" style={{ background: 'var(--accent-dim)', color: 'var(--accent)' }}>
+                        {inboxProject.captureCount || 0}
+                      </span>
+                    </div>
+                    {inboxProject.captureCount > 0 && inboxProject.latestTitle ? (
+                      <p className="text-xs mt-0.5 truncate" style={{ color: 'var(--text-tertiary)' }}>
+                        Latest: {inboxProject.latestTitle}
+                      </p>
+                    ) : (
+                      <p className="text-xs mt-0.5" style={{ color: 'var(--text-tertiary)' }}>
+                        Paste a URL above to start capturing
+                      </p>
+                    )}
+                  </div>
+                  <svg width="16" height="16" viewBox="0 0 16 16" fill="none" style={{ color: 'var(--text-tertiary)' }}>
+                    <path d="M6 4l4 4-4 4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                  </svg>
                 </div>
               </div>
-            ))}
-          </div>
+            )}
+
+            {/* Project Cards */}
+            {projects.length === 0 ? (
+              <div className="flex flex-col items-center justify-center py-16 text-center">
+                <div className="w-20 h-20 rounded-2xl flex items-center justify-center mb-4" style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border)' }}>
+                  <svg width="32" height="32" viewBox="0 0 24 24" fill="none" style={{ color: 'var(--text-tertiary)' }}>
+                    <rect x="3" y="3" width="18" height="18" rx="3" stroke="currentColor" strokeWidth="1.5" />
+                    <path d="M3 9h18" stroke="currentColor" strokeWidth="1.5" />
+                    <circle cx="6.5" cy="6" r="0.75" fill="currentColor" />
+                    <circle cx="9.5" cy="6" r="0.75" fill="currentColor" />
+                  </svg>
+                </div>
+                <p className="text-base font-medium" style={{ color: 'var(--text-secondary)' }}>No projects yet</p>
+                <p className="text-sm mt-1" style={{ color: 'var(--text-tertiary)' }}>Create one to start curating</p>
+              </div>
+            ) : (
+              <div className="project-grid stagger-children">
+                {projects.map((project) => (
+                  <div
+                    key={project.id}
+                    className="project-card-hero group rounded-2xl overflow-hidden cursor-pointer relative"
+                    style={{ border: '1px solid var(--border-subtle)' }}
+                    onClick={() => router.push(`/project/${project.id}`)}
+                  >
+                    {/* Hero image background */}
+                    <div className="relative h-52 overflow-hidden" style={{ background: 'var(--bg-hover)' }}>
+                      {project.coverImage ? (
+                        <img
+                          src={project.coverImage}
+                          alt=""
+                          className="w-full h-full object-cover"
+                          referrerPolicy="no-referrer"
+                          onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
+                        />
+                      ) : (
+                        <div className="w-full h-full flex items-center justify-center" style={{
+                          background: 'linear-gradient(135deg, var(--bg-hover) 0%, var(--bg-elevated) 100%)'
+                        }}>
+                          <svg width="48" height="48" viewBox="0 0 24 24" fill="none" style={{ color: 'var(--border)' }}>
+                            <rect x="3" y="3" width="18" height="18" rx="3" stroke="currentColor" strokeWidth="1.5" />
+                            <path d="M3 16l5-5 4 4 3-3 6 6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                            <circle cx="8.5" cy="8.5" r="1.5" stroke="currentColor" strokeWidth="1.5" />
+                          </svg>
+                        </div>
+                      )}
+
+                      {/* Dark gradient overlay for text readability */}
+                      <div className="absolute inset-0" style={{
+                        background: 'linear-gradient(to top, rgba(0,0,0,0.85) 0%, rgba(0,0,0,0.3) 50%, rgba(0,0,0,0.1) 100%)'
+                      }} />
+
+                      {/* Delete button */}
+                      <button
+                        onClick={(e) => { e.stopPropagation(); setDeleteConfirm(project.id); }}
+                        className="absolute top-3 right-3 p-1.5 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity z-10"
+                        style={{ background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(8px)', color: 'var(--text-secondary)' }}
+                      >
+                        <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" /></svg>
+                      </button>
+
+                      {/* Overlaid text content at bottom */}
+                      <div className="absolute inset-x-0 bottom-0 p-4 z-10">
+                        <h3 className="text-lg font-semibold truncate text-white">
+                          {project.name}
+                        </h3>
+                        <div className="flex items-center gap-2 mt-1">
+                          {/* Platform dots */}
+                          {project.platforms.length > 0 && (
+                            <div className="flex items-center gap-1">
+                              {project.platforms.map(p => (
+                                <div
+                                  key={p}
+                                  className="w-2 h-2 rounded-full"
+                                  style={{ background: platformColors[p] || platformColors.other }}
+                                  title={p}
+                                />
+                              ))}
+                            </div>
+                          )}
+                          <span className="text-xs" style={{ color: 'rgba(255,255,255,0.6)' }}>
+                            {project.captureCount || 0} capture{(project.captureCount || 0) !== 1 ? 's' : ''}
+                          </span>
+                          <span className="text-xs" style={{ color: 'rgba(255,255,255,0.4)' }}>·</span>
+                          <span className="text-xs" style={{ color: 'rgba(255,255,255,0.5)' }}>
+                            {formatDate(project.updatedAt)}
+                          </span>
+                        </div>
+                        {project.latestTitle && (
+                          <p className="text-xs mt-1.5 truncate" style={{ color: 'rgba(255,255,255,0.45)' }}>
+                            {project.latestTitle}
+                          </p>
+                        )}
+                        {!project.latestTitle && project.captureCount === 0 && (
+                          <p className="text-xs mt-1.5" style={{ color: 'rgba(255,255,255,0.3)' }}>
+                            No captures yet
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </>
         )}
       </div>
     </main>

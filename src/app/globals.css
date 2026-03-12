@@ -161,6 +161,33 @@ body {
   }
 }
 
+/* Inbox card */
+.inbox-card {
+  border: 1px solid var(--accent-dim);
+  background: linear-gradient(135deg, var(--bg-elevated) 0%, rgba(232, 255, 71, 0.03) 100%);
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+@media (min-width: 768px) {
+  .inbox-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 8px 24px rgba(232, 255, 71, 0.08);
+  }
+}
+
+/* Project card with hero image */
+.project-card-hero {
+  min-height: 200px;
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+@media (min-width: 768px) {
+  .project-card-hero:hover {
+    transform: translateY(-4px);
+    box-shadow: 0 12px 32px rgba(0, 0, 0, 0.4);
+  }
+}
+
 /* Line clamp utilities */
 .line-clamp-2 {
   display: -webkit-box;

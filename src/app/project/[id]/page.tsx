@@ -8,10 +8,11 @@ import {
   getCaptures,
   addCapture,
   deleteCapture,
+  deleteProject,
   updateCapture,
   updateProject,
   moveCapture,
-  exportProjectAsMarkdown,
+  INBOX_PROJECT_ID,
   type Project,
   type Capture,
   type Platform,
@@ -48,7 +49,6 @@ export default function ProjectPage() {
   const [viewing, setViewing] = useState<Capture | null>(null);
   const [editingNote, setEditingNote] = useState(false);
   const [noteText, setNoteText] = useState('');
-  const [copied, setCopied] = useState(false);
   const [activeFilter, setActiveFilter] = useState<Platform | 'all'>('all');
   const [editingBrief, setEditingBrief] = useState(false);
   const [briefText, setBriefText] = useState('');
@@ -61,7 +61,11 @@ export default function ProjectPage() {
   const [editingCapture, setEditingCapture] = useState<string | null>(null);
   const [editTitle, setEditTitle] = useState('');
   const [editNote, setEditNote] = useState('');
+  const [editingProjectName, setEditingProjectName] = useState(false);
+  const [projectNameText, setProjectNameText] = useState('');
+  const [confirmDeleteProject, setConfirmDeleteProject] = useState(false);
   const urlInputRef = useRef<HTMLInputElement>(null);
+  const projectNameInputRef = useRef<HTMLInputElement>(null);
   const noteInputRef = useRef<HTMLTextAreaElement>(null);
   const briefInputRef = useRef<HTMLTextAreaElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -90,6 +94,9 @@ export default function ProjectPage() {
     return () => document.removeEventListener('mousedown', handler);
   }, [menuOpen]);
   useEffect(() => { if (editingBrief && briefInputRef.current) briefInputRef.current.focus(); }, [editingBrief]);
+  useEffect(() => { if (editingProjectName && projectNameInputRef.current) projectNameInputRef.current.focus(); }, [editingProjectName]);
+
+  const isInbox = projectId === INBOX_PROJECT_ID;
 
   const filteredCaptures = activeFilter === 'all'
     ? captures
@@ -149,13 +156,6 @@ export default function ProjectPage() {
     }
   }
 
-  async function handleCopyForClaude() {
-    const md = await exportProjectAsMarkdown(projectId, activeFilter);
-    await navigator.clipboard.writeText(md);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
-  }
-
   async function handleSaveNote() {
     if (!viewing) return;
     try {
@@ -176,6 +176,29 @@ export default function ProjectPage() {
       setEditingBrief(false);
     } catch (e) {
       console.error('Save brief failed:', e);
+    }
+  }
+
+  async function handleSaveProjectName() {
+    if (!project || isInbox) return;
+    const name = projectNameText.trim();
+    if (!name) return;
+    try {
+      await updateProject(projectId, { name });
+      setProject({ ...project, name });
+      setEditingProjectName(false);
+    } catch (e) {
+      console.error('Rename failed:', e);
+    }
+  }
+
+  async function handleDeleteProject() {
+    if (isInbox) return;
+    try {
+      await deleteProject(projectId);
+      router.push('/');
+    } catch (e) {
+      console.error('Delete project failed:', e);
     }
   }
 
@@ -255,9 +278,23 @@ export default function ProjectPage() {
     return text.length > len ? text.slice(0, len) + '...' : text;
   }
 
-  // Strip [image:...] markers for preview text
+  // Strip markdown formatting and [image:...] markers for clean preview text
   function cleanBody(text: string) {
-    return text.replace(/\[image:[^\]]+\]\n?\n?/g, '');
+    return text
+      .replace(/\[image:[^\]]+\]\n?\n?/g, '')           // [image:...] markers
+      .replace(/^#{1,6}\s+/gm, '')                       // # headers
+      .replace(/\*\*(.+?)\*\*/g, '$1')                   // **bold**
+      .replace(/\*(.+?)\*/g, '$1')                        // *italic*
+      .replace(/__(.+?)__/g, '$1')                        // __bold__
+      .replace(/_(.+?)_/g, '$1')                          // _italic_
+      .replace(/~~(.+?)~~/g, '$1')                        // ~~strikethrough~~
+      .replace(/`{1,3}([^`]+)`{1,3}/g, '$1')             // `code` and ```code```
+      .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')            // [link](url) → link
+      .replace(/^\s*[-*+]\s+/gm, '')                      // - list items
+      .replace(/^\s*\d+\.\s+/gm, '')                      // 1. ordered list items
+      .replace(/^\s*>\s?/gm, '')                           // > blockquotes
+      .replace(/\n{3,}/g, '\n\n')                          // collapse excess newlines
+      .trim();
   }
 
   // Basic markdown rendering for GitHub READMEs and other content
@@ -519,66 +556,99 @@ export default function ProjectPage() {
           Projects
         </button>
         <div className="flex items-end justify-between">
-          <div>
-            <h1 className="text-xl font-bold tracking-tight" style={{ color: 'var(--text-primary)' }}>{project.name}</h1>
+          <div className="flex-1 min-w-0">
+            {editingProjectName && !isInbox ? (
+              <div className="flex items-center gap-2">
+                <input
+                  ref={projectNameInputRef}
+                  value={projectNameText}
+                  onChange={(e) => setProjectNameText(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === 'Enter') handleSaveProjectName(); if (e.key === 'Escape') setEditingProjectName(false); }}
+                  className="text-xl font-bold tracking-tight px-2 py-1 rounded-lg outline-none flex-1 min-w-0"
+                  style={{ color: 'var(--text-primary)', background: 'var(--bg-elevated)', border: '1px solid var(--border)' }}
+                  maxLength={50}
+                />
+                <button onClick={handleSaveProjectName} className="px-3 py-1.5 rounded-lg text-xs font-semibold" style={{ background: 'var(--accent)', color: 'var(--bg)' }}>Save</button>
+                <button onClick={() => setEditingProjectName(false)} className="px-3 py-1.5 rounded-lg text-xs" style={{ color: 'var(--text-tertiary)' }}>Cancel</button>
+              </div>
+            ) : (
+              <div className="flex items-center gap-2">
+                <h1
+                  className={`text-xl font-bold tracking-tight truncate ${!isInbox ? 'cursor-pointer hover:opacity-80' : ''}`}
+                  style={{ color: 'var(--text-primary)' }}
+                  onClick={() => { if (!isInbox) { setProjectNameText(project.name); setEditingProjectName(true); } }}
+                  title={!isInbox ? 'Click to rename' : undefined}
+                >
+                  {project.name}
+                </h1>
+                {!isInbox && (
+                  <button
+                    onClick={() => setConfirmDeleteProject(true)}
+                    className="p-1.5 rounded-lg transition-colors flex-shrink-0 hover:bg-white/10"
+                    style={{ color: 'var(--text-tertiary)' }}
+                    title="Delete project"
+                  >
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none"><path d="M6 7h12M9 7V5a1 1 0 011-1h4a1 1 0 011 1v2m2 0v12a2 2 0 01-2 2H9a2 2 0 01-2-2V7h10z" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" /></svg>
+                  </button>
+                )}
+              </div>
+            )}
             <p className="text-xs mt-0.5 font-mono" style={{ color: 'var(--text-tertiary)' }}>
               {captures.length} capture{captures.length !== 1 ? 's' : ''}
             </p>
           </div>
-          {captures.length > 0 && (
-            <div className="flex gap-2">
-              <button onClick={handleCopyForClaude} className="flex items-center gap-1.5 px-3 py-2 rounded-full text-xs font-medium transition-all" style={{ border: copied ? '1px solid var(--accent)' : '1px solid var(--border)', color: copied ? 'var(--accent)' : 'var(--text-secondary)' }}>
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none"><rect x="9" y="9" width="13" height="13" rx="2" stroke="currentColor" strokeWidth="1.5"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1" stroke="currentColor" strokeWidth="1.5"/></svg>
-                {copied ? 'Copied!' : 'Copy for Claude'}
-              </button>
-              <button onClick={handleExport} disabled={exporting} className="flex items-center gap-1.5 px-3 py-2 rounded-full text-xs font-medium transition-all" style={{ border: '1px solid var(--border)', color: 'var(--text-secondary)', opacity: exporting ? 0.6 : 1 }}>
+          {!isInbox && captures.length > 0 && (
+            <div className="flex-shrink-0 ml-3">
+              <button onClick={handleExport} disabled={exporting} className="flex items-center gap-1.5 px-4 py-2 rounded-full text-xs font-semibold transition-all" style={{ background: exporting ? 'var(--bg-elevated)' : 'var(--accent)', color: exporting ? 'var(--text-secondary)' : 'var(--bg)', border: exporting ? '1px solid var(--border)' : '1px solid var(--accent)', opacity: exporting ? 0.8 : 1 }}>
                 {exporting ? (
                   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" className="animate-spin"><circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="2" opacity="0.25"/><path d="M12 2a10 10 0 019.75 7.75" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/></svg>
                 ) : (
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none"><path d="M12 4v12m0 0l-4-4m4 4l4-4M4 18h16" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" /></svg>
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none"><path d="M20 12v6a2 2 0 01-2 2H6a2 2 0 01-2-2v-6M12 3v12m0 0l-4-4m4 4l4-4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" /></svg>
                 )}
-                {exporting ? exportStatus || 'Generating...' : 'Export PDF'}
+                {exporting ? exportStatus || 'Packaging...' : 'Package for Claude'}
               </button>
             </div>
           )}
         </div>
       </header>
 
-      {/* ── Project Brief ── */}
-      <div className="px-5 mb-4">
-        <div className="rounded-xl overflow-hidden" style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border-subtle)' }}>
-          <div className="flex items-center gap-2 px-4 pt-3 pb-1">
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" style={{ color: 'var(--accent)', flexShrink: 0 }}>
-              <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8l-6-6z" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-              <path d="M14 2v6h6M16 13H8M16 17H8M10 9H8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-            </svg>
-            <p className="text-[10px] font-semibold tracking-wide uppercase" style={{ color: 'var(--accent)' }}>Project Brief</p>
-          </div>
-          {editingBrief ? (
-            <div className="px-4 pb-3">
-              <textarea
-                ref={briefInputRef}
-                value={briefText}
-                onChange={(e) => setBriefText(e.target.value)}
-                placeholder="What is this project about? What are you trying to learn or build?"
-                rows={3}
-                className="w-full px-3 py-2 rounded-lg text-sm outline-none resize-none"
-                style={{ background: 'var(--bg)', border: '1px solid var(--border)', color: 'var(--text-primary)', lineHeight: 1.6 }}
-              />
-              <div className="flex gap-2 mt-2 justify-end">
-                <button onClick={() => setEditingBrief(false)} className="px-3 py-1 rounded-lg text-xs" style={{ color: 'var(--text-tertiary)' }}>Cancel</button>
-                <button onClick={handleSaveBrief} className="px-4 py-1 rounded-lg text-xs font-semibold" style={{ background: 'var(--accent)', color: 'var(--bg)' }}>Save</button>
-              </div>
+      {/* ── Project Brief (hidden for Inbox) ── */}
+      {!isInbox && (
+        <div className="px-5 mb-4">
+          <div className="rounded-xl overflow-hidden" style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border-subtle)' }}>
+            <div className="flex items-center gap-2 px-4 pt-3 pb-1">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" style={{ color: 'var(--accent)', flexShrink: 0 }}>
+                <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8l-6-6z" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                <path d="M14 2v6h6M16 13H8M16 17H8M10 9H8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+              <p className="text-[10px] font-semibold tracking-wide uppercase" style={{ color: 'var(--accent)' }}>Project Brief</p>
             </div>
-          ) : (
-            <button onClick={() => { setBriefText(project?.brief || ''); setEditingBrief(true); }} className="w-full text-left px-4 pb-3 pt-1">
-              <p className="text-sm" style={{ color: project?.brief ? 'var(--text-secondary)' : 'var(--text-tertiary)', lineHeight: 1.5 }}>
-                {project?.brief || 'What is this project about? What are you trying to learn or build?'}
-              </p>
-            </button>
-          )}
+            {editingBrief ? (
+              <div className="px-4 pb-3">
+                <textarea
+                  ref={briefInputRef}
+                  value={briefText}
+                  onChange={(e) => setBriefText(e.target.value)}
+                  placeholder="What is this project about? What are you trying to learn or build?"
+                  rows={3}
+                  className="w-full px-3 py-2 rounded-lg text-sm outline-none resize-none"
+                  style={{ background: 'var(--bg)', border: '1px solid var(--border)', color: 'var(--text-primary)', lineHeight: 1.6 }}
+                />
+                <div className="flex gap-2 mt-2 justify-end">
+                  <button onClick={() => setEditingBrief(false)} className="px-3 py-1 rounded-lg text-xs" style={{ color: 'var(--text-tertiary)' }}>Cancel</button>
+                  <button onClick={handleSaveBrief} className="px-4 py-1 rounded-lg text-xs font-semibold" style={{ background: 'var(--accent)', color: 'var(--bg)' }}>Save</button>
+                </div>
+              </div>
+            ) : (
+              <button onClick={() => { setBriefText(project?.brief || ''); setEditingBrief(true); }} className="w-full text-left px-4 pb-3 pt-1">
+                <p className="text-sm" style={{ color: project?.brief ? 'var(--text-secondary)' : 'var(--text-tertiary)', lineHeight: 1.5 }}>
+                  {project?.brief || 'What is this project about? What are you trying to learn or build?'}
+                </p>
+              </button>
+            )}
+          </div>
         </div>
-      </div>
+      )}
 
       {/* ── URL Input ── */}
       <div className="px-5 mb-4">
@@ -658,7 +728,7 @@ export default function ProjectPage() {
                       <div className="absolute right-0 top-8 w-44 py-1 rounded-xl shadow-lg z-20" style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border)' }}>
                         <button onClick={(e) => { e.stopPropagation(); handleCardExportPdf(capture); }} className="w-full text-left px-3 py-2 text-xs flex items-center gap-2 hover:bg-white/5 transition-colors" style={{ color: 'var(--text-secondary)' }}>
                           <svg width="13" height="13" viewBox="0 0 24 24" fill="none"><path d="M12 4v12m0 0l-4-4m4 4l4-4M4 18h16" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" /></svg>
-                          Export PDF
+                          Save as PDF
                         </button>
                         <button onClick={(e) => { e.stopPropagation(); handleStartEdit(capture); }} className="w-full text-left px-3 py-2 text-xs flex items-center gap-2 hover:bg-white/5 transition-colors" style={{ color: 'var(--text-secondary)' }}>
                           <svg width="13" height="13" viewBox="0 0 24 24" fill="none"><path d="M15.232 5.232l3.536 3.536M9 13l-2 2v3h3l9-9a2.5 2.5 0 00-3.536-3.536L9 13z" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" /></svg>
@@ -795,6 +865,20 @@ export default function ProjectPage() {
             </div>
             <div className="px-5 py-3" style={{ borderTop: '1px solid var(--border-subtle)' }}>
               <button onClick={() => setMoveTarget(null)} className="w-full py-2 rounded-xl text-sm" style={{ color: 'var(--text-secondary)', border: '1px solid var(--border)' }}>Cancel</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Delete Project Confirmation Modal ── */}
+      {confirmDeleteProject && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center" style={{ background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(4px)' }}>
+          <div className="w-full max-w-sm mx-4 p-5 rounded-2xl" style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border)' }}>
+            <h3 className="text-base font-semibold mb-2" style={{ color: 'var(--text-primary)' }}>Delete project?</h3>
+            <p className="text-sm mb-5" style={{ color: 'var(--text-tertiary)' }}>Delete &ldquo;{project.name}&rdquo; and all its captures? This can&apos;t be undone.</p>
+            <div className="flex gap-2 justify-end">
+              <button onClick={() => setConfirmDeleteProject(false)} className="px-4 py-2 rounded-xl text-sm" style={{ color: 'var(--text-secondary)', border: '1px solid var(--border)' }}>Cancel</button>
+              <button onClick={handleDeleteProject} className="px-4 py-2 rounded-xl text-sm font-semibold text-white" style={{ background: 'var(--danger)' }}>Delete</button>
             </div>
           </div>
         </div>
