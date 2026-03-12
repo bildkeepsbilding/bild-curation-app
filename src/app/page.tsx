@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
-import { getProjects, getCaptures, getAllCaptures, createProject, deleteProject, ensureInbox, addCapture, INBOX_PROJECT_ID, type Project, type Capture } from '@/lib/db';
+import { getProjects, getCaptures, getAllCaptures, getProjectMap, createProject, deleteProject, ensureInbox, addCapture, findCaptureByUrl, detectContentTag, INBOX_PROJECT_ID, type Project, type Capture } from '@/lib/db';
 
 interface ProjectWithCover extends Project {
   coverImage?: string;
@@ -23,6 +23,11 @@ export default function Home() {
   const [fetching, setFetching] = useState(false);
   const [fetchError, setFetchError] = useState('');
   const [totalCaptures, setTotalCaptures] = useState(0);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchResults, setSearchResults] = useState<Capture[]>([]);
+  const [searchProjectMap, setSearchProjectMap] = useState<Record<string, Project>>({});
+  const [searchCache, setSearchCache] = useState<{ captures: Capture[]; projectMap: Record<string, Project> } | null>(null);
+  const [duplicateInfo, setDuplicateInfo] = useState<{ capture: Capture; project: Project } | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const urlInputRef = useRef<HTMLInputElement>(null);
 
@@ -77,8 +82,54 @@ export default function Home() {
     }
   }
 
-  async function handleQuickCapture() {
+  async function handleSearch(query: string) {
+    setSearchQuery(query);
+    if (!query.trim()) {
+      setSearchResults([]);
+      return;
+    }
+    try {
+      let data = searchCache;
+      if (!data) {
+        const [captures, projectMap] = await Promise.all([getAllCaptures(), getProjectMap()]);
+        data = { captures, projectMap };
+        setSearchCache(data);
+        setSearchProjectMap(projectMap);
+      }
+      const q = query.toLowerCase();
+      const results = data.captures.filter(c =>
+        c.title.toLowerCase().includes(q) ||
+        c.body.toLowerCase().includes(q) ||
+        c.author.toLowerCase().includes(q) ||
+        (c.note || '').toLowerCase().includes(q)
+      );
+      setSearchResults(results);
+      setSearchProjectMap(data.projectMap);
+    } catch (e) {
+      console.error('Search failed:', e);
+    }
+  }
+
+  async function handleCheckQuickCapture() {
     const url = urlInput.trim();
+    if (!url) return;
+    setDuplicateInfo(null);
+    try {
+      const dup = await findCaptureByUrl(url);
+      if (dup) {
+        setDuplicateInfo(dup);
+        return;
+      }
+    } catch { /* ignore */ }
+    await doQuickCapture(url);
+  }
+
+  async function handleCaptureAnyway() {
+    setDuplicateInfo(null);
+    await doQuickCapture(urlInput.trim());
+  }
+
+  async function doQuickCapture(url: string) {
     if (!url) return;
 
     setFetching(true);
@@ -108,6 +159,7 @@ export default function Home() {
       );
 
       setUrlInput('');
+      setSearchCache(null);
       await loadProjects();
     } catch (e) {
       setFetchError(e instanceof Error ? e.message : 'Failed to capture');
@@ -264,15 +316,15 @@ export default function Home() {
                   ref={urlInputRef}
                   type="url"
                   value={urlInput}
-                  onChange={(e) => { setUrlInput(e.target.value); setFetchError(''); }}
-                  onKeyDown={(e) => e.key === 'Enter' && urlInput.trim() && !fetching && handleQuickCapture()}
+                  onChange={(e) => { setUrlInput(e.target.value); setFetchError(''); setDuplicateInfo(null); }}
+                  onKeyDown={(e) => e.key === 'Enter' && urlInput.trim() && !fetching && handleCheckQuickCapture()}
                   placeholder="Paste a URL..."
                   disabled={fetching}
                   className="flex-1 px-4 py-3 rounded-xl text-sm outline-none disabled:opacity-50"
                   style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border)', color: 'var(--text-primary)' }}
                 />
                 <button
-                  onClick={handleQuickCapture}
+                  onClick={handleCheckQuickCapture}
                   disabled={!urlInput.trim() || fetching}
                   className="px-5 py-3 rounded-xl text-sm font-semibold transition-all active:scale-95 disabled:opacity-30 flex items-center gap-2"
                   style={{ background: 'var(--accent)', color: 'var(--bg)' }}
@@ -290,6 +342,29 @@ export default function Home() {
               </div>
               {fetchError && (
                 <p className="text-xs mt-1.5 px-1" style={{ color: 'var(--danger)' }}>{fetchError}</p>
+              )}
+              {duplicateInfo && (
+                <div className="mt-2 px-3 py-2.5 rounded-xl text-xs flex items-center justify-between gap-3" style={{ background: 'var(--accent-dim)', border: '1px solid var(--accent)40' }}>
+                  <span style={{ color: 'var(--accent)' }}>
+                    Already captured in <strong>{duplicateInfo.project.name}</strong>
+                  </span>
+                  <div className="flex items-center gap-2 flex-shrink-0">
+                    <button
+                      onClick={() => router.push(`/project/${duplicateInfo.project.id}`)}
+                      className="px-2.5 py-1 rounded-lg text-[11px] font-medium transition-colors"
+                      style={{ background: 'var(--bg)', color: 'var(--text-secondary)', border: '1px solid var(--border)' }}
+                    >
+                      Go to existing
+                    </button>
+                    <button
+                      onClick={handleCaptureAnyway}
+                      className="px-2.5 py-1 rounded-lg text-[11px] font-semibold transition-colors"
+                      style={{ background: 'var(--accent)', color: 'var(--bg)' }}
+                    >
+                      Capture anyway
+                    </button>
+                  </div>
+                </div>
               )}
             </div>
 
@@ -330,130 +405,230 @@ export default function Home() {
               </div>
             )}
 
-            {/* View All Captures link */}
+            {/* Search Bar */}
             {totalCaptures > 0 && (
-              <div
-                className="mb-6 flex items-center justify-between px-1 cursor-pointer group"
-                onClick={() => router.push('/all')}
-              >
-                <div className="flex items-center gap-2">
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" style={{ color: 'var(--text-tertiary)' }}>
-                    <path d="M4 6h16M4 12h16M4 18h16" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+              <div className="mb-4">
+                <div className="relative">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" className="absolute left-3.5 top-1/2 -translate-y-1/2" style={{ color: 'var(--text-tertiary)' }}>
+                    <circle cx="11" cy="11" r="7" stroke="currentColor" strokeWidth="1.5" />
+                    <path d="M16 16l4.5 4.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
                   </svg>
-                  <span className="text-sm font-medium group-hover:underline" style={{ color: 'var(--text-secondary)' }}>
-                    View all captures
-                  </span>
-                  <span className="text-xs px-1.5 py-0.5 rounded-full" style={{ background: 'var(--bg-hover)', color: 'var(--text-tertiary)' }}>
-                    {totalCaptures}
-                  </span>
+                  <input
+                    type="text"
+                    value={searchQuery}
+                    onChange={(e) => handleSearch(e.target.value)}
+                    placeholder="Search all captures..."
+                    className="w-full pl-10 pr-4 py-2.5 rounded-xl text-sm outline-none"
+                    style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border)', color: 'var(--text-primary)' }}
+                  />
+                  {searchQuery && (
+                    <button
+                      onClick={() => { setSearchQuery(''); setSearchResults([]); }}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 p-0.5 rounded"
+                      style={{ color: 'var(--text-tertiary)' }}
+                    >
+                      <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" /></svg>
+                    </button>
+                  )}
                 </div>
-                <svg width="14" height="14" viewBox="0 0 16 16" fill="none" className="transition-transform group-hover:translate-x-0.5" style={{ color: 'var(--text-tertiary)' }}>
-                  <path d="M6 4l4 4-4 4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-                </svg>
               </div>
             )}
 
-            {/* Project Cards */}
-            {projects.length === 0 ? (
-              <div className="flex flex-col items-center justify-center py-16 text-center">
-                <div className="w-20 h-20 rounded-2xl flex items-center justify-center mb-4" style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border)' }}>
-                  <svg width="32" height="32" viewBox="0 0 24 24" fill="none" style={{ color: 'var(--text-tertiary)' }}>
-                    <rect x="3" y="3" width="18" height="18" rx="3" stroke="currentColor" strokeWidth="1.5" />
-                    <path d="M3 9h18" stroke="currentColor" strokeWidth="1.5" />
-                    <circle cx="6.5" cy="6" r="0.75" fill="currentColor" />
-                    <circle cx="9.5" cy="6" r="0.75" fill="currentColor" />
-                  </svg>
-                </div>
-                <p className="text-base font-medium" style={{ color: 'var(--text-secondary)' }}>No projects yet</p>
-                <p className="text-sm mt-1" style={{ color: 'var(--text-tertiary)' }}>Create one to start curating</p>
-              </div>
-            ) : (
-              <div className="project-grid stagger-children">
-                {projects.map((project) => (
-                  <div
-                    key={project.id}
-                    className="project-card-hero group rounded-2xl overflow-hidden cursor-pointer relative"
-                    style={{ border: '1px solid var(--border-subtle)' }}
-                    onClick={() => router.push(`/project/${project.id}`)}
-                  >
-                    {/* Hero image background */}
-                    <div className="relative h-52 overflow-hidden" style={{ background: 'var(--bg-hover)' }}>
-                      {project.coverImage ? (
-                        <img
-                          src={project.coverImage}
-                          alt=""
-                          className="w-full h-full object-cover"
-                          referrerPolicy="no-referrer"
-                          onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
-                        />
-                      ) : (
-                        <div className="w-full h-full flex items-center justify-center" style={{
-                          background: 'linear-gradient(135deg, var(--bg-hover) 0%, var(--bg-elevated) 100%)'
-                        }}>
-                          <svg width="48" height="48" viewBox="0 0 24 24" fill="none" style={{ color: 'var(--border)' }}>
-                            <rect x="3" y="3" width="18" height="18" rx="3" stroke="currentColor" strokeWidth="1.5" />
-                            <path d="M3 16l5-5 4 4 3-3 6 6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-                            <circle cx="8.5" cy="8.5" r="1.5" stroke="currentColor" strokeWidth="1.5" />
-                          </svg>
-                        </div>
-                      )}
-
-                      {/* Dark gradient overlay for text readability */}
-                      <div className="absolute inset-0" style={{
-                        background: 'linear-gradient(to top, rgba(0,0,0,0.85) 0%, rgba(0,0,0,0.3) 50%, rgba(0,0,0,0.1) 100%)'
-                      }} />
-
-                      {/* Delete button */}
-                      <button
-                        onClick={(e) => { e.stopPropagation(); setDeleteConfirm(project.id); }}
-                        className="absolute top-3 right-3 p-1.5 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity z-10"
-                        style={{ background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(8px)', color: 'var(--text-secondary)' }}
-                      >
-                        <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" /></svg>
-                      </button>
-
-                      {/* Overlaid text content at bottom */}
-                      <div className="absolute inset-x-0 bottom-0 p-4 z-10">
-                        <h3 className="text-lg font-semibold truncate text-white">
-                          {project.name}
-                        </h3>
-                        <div className="flex items-center gap-2 mt-1">
-                          {/* Platform dots */}
-                          {project.platforms.length > 0 && (
-                            <div className="flex items-center gap-1">
-                              {project.platforms.map(p => (
-                                <div
-                                  key={p}
-                                  className="w-2 h-2 rounded-full"
-                                  style={{ background: platformColors[p] || platformColors.other }}
-                                  title={p}
-                                />
-                              ))}
+            {/* Search Results */}
+            {searchQuery.trim() ? (
+              <div>
+                <p className="text-xs mb-3 px-1" style={{ color: 'var(--text-tertiary)' }}>
+                  {searchResults.length} result{searchResults.length !== 1 ? 's' : ''} for &ldquo;{searchQuery}&rdquo;
+                </p>
+                {searchResults.length === 0 ? (
+                  <div className="flex flex-col items-center justify-center py-12 text-center">
+                    <p className="text-sm" style={{ color: 'var(--text-tertiary)' }}>No captures match your search</p>
+                  </div>
+                ) : (
+                  <div className="capture-grid stagger-children">
+                    {searchResults.map((capture) => {
+                      const hasImage = capture.images && capture.images.length > 0 && capture.platform !== 'github';
+                      const tag = capture.contentTag || detectContentTag(capture);
+                      const projectName = searchProjectMap[capture.projectId]?.name || 'Unknown';
+                      return (
+                        <div
+                          key={capture.id}
+                          className="capture-card rounded-2xl overflow-hidden cursor-pointer"
+                          style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border-subtle)' }}
+                          onClick={() => router.push(`/project/${capture.projectId}`)}
+                        >
+                          {hasImage && (
+                            <div className="relative w-full" style={{ height: '140px' }}>
+                              <img src={capture.images[0]} alt="" className="w-full h-full object-cover" loading="lazy" referrerPolicy="no-referrer" onError={(e) => { const parent = (e.target as HTMLImageElement).closest('.relative') as HTMLElement | null; if (parent) parent.style.display = 'none'; }} />
+                              <div className="absolute inset-0" style={{ background: 'linear-gradient(to top, var(--bg-elevated) 0%, transparent 60%)' }} />
+                              <div className="absolute top-3 left-3 flex items-center gap-1.5">
+                                <span className="px-2 py-0.5 rounded-md text-[10px] font-semibold" style={{ background: (platformColors[capture.platform] || platformColors.other) + 'dd', color: '#fff', backdropFilter: 'blur(4px)' }}>
+                                  {capture.platform === 'twitter' ? 'X' : capture.platform === 'reddit' ? 'Reddit' : capture.platform === 'github' ? 'GitHub' : 'Article'}
+                                </span>
+                                <span className="px-1.5 py-0.5 rounded text-[10px] font-medium" style={{ background: 'rgba(0,0,0,0.5)', color: 'var(--text-tertiary)', backdropFilter: 'blur(4px)' }}>
+                                  {tag}
+                                </span>
+                              </div>
                             </div>
                           )}
-                          <span className="text-xs" style={{ color: 'rgba(255,255,255,0.6)' }}>
-                            {project.captureCount || 0} capture{(project.captureCount || 0) !== 1 ? 's' : ''}
-                          </span>
-                          <span className="text-xs" style={{ color: 'rgba(255,255,255,0.4)' }}>·</span>
-                          <span className="text-xs" style={{ color: 'rgba(255,255,255,0.5)' }}>
-                            {formatDate(project.updatedAt)}
-                          </span>
+                          <div className="p-4" style={{ marginTop: hasImage ? '-20px' : '0', position: 'relative' }}>
+                            <div className="flex items-center gap-2 mb-2">
+                              {!hasImage && (
+                                <>
+                                  <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold" style={{ background: (platformColors[capture.platform] || platformColors.other) + '20', color: platformColors[capture.platform] || platformColors.other }}>
+                                    {capture.platform === 'twitter' ? 'X' : capture.platform === 'reddit' ? 'Reddit' : capture.platform === 'github' ? 'GitHub' : 'Article'}
+                                  </span>
+                                  <span className="px-1.5 py-0.5 rounded text-[10px] font-medium" style={{ background: 'var(--bg-hover)', color: 'var(--text-tertiary)' }}>
+                                    {tag}
+                                  </span>
+                                </>
+                              )}
+                              <span className="px-1.5 py-0.5 rounded text-[10px] font-medium" style={{ background: 'var(--accent-dim)', color: 'var(--accent)' }}>
+                                {projectName}
+                              </span>
+                            </div>
+                            <h3 className="text-sm font-semibold mb-1.5 line-clamp-2" style={{ color: 'var(--text-primary)', lineHeight: 1.4 }}>
+                              {capture.title}
+                            </h3>
+                            <div className="flex items-center justify-between">
+                              <span className="text-[11px] truncate" style={{ color: 'var(--text-tertiary)', maxWidth: '60%' }}>{capture.author}</span>
+                              <span className="text-[10px] font-mono" style={{ color: 'var(--text-tertiary)', opacity: 0.6 }}>{formatDate(capture.createdAt)}</span>
+                            </div>
+                          </div>
                         </div>
-                        {project.latestTitle && (
-                          <p className="text-xs mt-1.5 truncate" style={{ color: 'rgba(255,255,255,0.45)' }}>
-                            {project.latestTitle}
-                          </p>
-                        )}
-                        {!project.latestTitle && project.captureCount === 0 && (
-                          <p className="text-xs mt-1.5" style={{ color: 'rgba(255,255,255,0.3)' }}>
-                            No captures yet
-                          </p>
-                        )}
-                      </div>
-                    </div>
+                      );
+                    })}
                   </div>
-                ))}
+                )}
               </div>
+            ) : (
+              <>
+                {/* View All Captures link */}
+                {totalCaptures > 0 && (
+                  <div
+                    className="mb-6 flex items-center justify-between px-1 cursor-pointer group"
+                    onClick={() => router.push('/all')}
+                  >
+                    <div className="flex items-center gap-2">
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" style={{ color: 'var(--text-tertiary)' }}>
+                        <path d="M4 6h16M4 12h16M4 18h16" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+                      </svg>
+                      <span className="text-sm font-medium group-hover:underline" style={{ color: 'var(--text-secondary)' }}>
+                        View all captures
+                      </span>
+                      <span className="text-xs px-1.5 py-0.5 rounded-full" style={{ background: 'var(--bg-hover)', color: 'var(--text-tertiary)' }}>
+                        {totalCaptures}
+                      </span>
+                    </div>
+                    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" className="transition-transform group-hover:translate-x-0.5" style={{ color: 'var(--text-tertiary)' }}>
+                      <path d="M6 4l4 4-4 4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                    </svg>
+                  </div>
+                )}
+
+                {/* Project Cards */}
+                {projects.length === 0 ? (
+                  <div className="flex flex-col items-center justify-center py-16 text-center">
+                    <div className="w-20 h-20 rounded-2xl flex items-center justify-center mb-4" style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border)' }}>
+                      <svg width="32" height="32" viewBox="0 0 24 24" fill="none" style={{ color: 'var(--text-tertiary)' }}>
+                        <rect x="3" y="3" width="18" height="18" rx="3" stroke="currentColor" strokeWidth="1.5" />
+                        <path d="M3 9h18" stroke="currentColor" strokeWidth="1.5" />
+                        <circle cx="6.5" cy="6" r="0.75" fill="currentColor" />
+                        <circle cx="9.5" cy="6" r="0.75" fill="currentColor" />
+                      </svg>
+                    </div>
+                    <p className="text-base font-medium" style={{ color: 'var(--text-secondary)' }}>No projects yet</p>
+                    <p className="text-sm mt-1" style={{ color: 'var(--text-tertiary)' }}>Create one to start curating</p>
+                  </div>
+                ) : (
+                  <div className="project-grid stagger-children">
+                    {projects.map((project) => (
+                      <div
+                        key={project.id}
+                        className="project-card-hero group rounded-2xl overflow-hidden cursor-pointer relative"
+                        style={{ border: '1px solid var(--border-subtle)' }}
+                        onClick={() => router.push(`/project/${project.id}`)}
+                      >
+                        {/* Hero image background */}
+                        <div className="relative h-52 overflow-hidden" style={{ background: 'var(--bg-hover)' }}>
+                          {project.coverImage ? (
+                            <img
+                              src={project.coverImage}
+                              alt=""
+                              className="w-full h-full object-cover"
+                              referrerPolicy="no-referrer"
+                              onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
+                            />
+                          ) : (
+                            <div className="w-full h-full flex items-center justify-center" style={{
+                              background: 'linear-gradient(135deg, var(--bg-hover) 0%, var(--bg-elevated) 100%)'
+                            }}>
+                              <svg width="48" height="48" viewBox="0 0 24 24" fill="none" style={{ color: 'var(--border)' }}>
+                                <rect x="3" y="3" width="18" height="18" rx="3" stroke="currentColor" strokeWidth="1.5" />
+                                <path d="M3 16l5-5 4 4 3-3 6 6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                                <circle cx="8.5" cy="8.5" r="1.5" stroke="currentColor" strokeWidth="1.5" />
+                              </svg>
+                            </div>
+                          )}
+
+                          {/* Dark gradient overlay for text readability */}
+                          <div className="absolute inset-0" style={{
+                            background: 'linear-gradient(to top, rgba(0,0,0,0.85) 0%, rgba(0,0,0,0.3) 50%, rgba(0,0,0,0.1) 100%)'
+                          }} />
+
+                          {/* Delete button */}
+                          <button
+                            onClick={(e) => { e.stopPropagation(); setDeleteConfirm(project.id); }}
+                            className="absolute top-3 right-3 p-1.5 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity z-10"
+                            style={{ background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(8px)', color: 'var(--text-secondary)' }}
+                          >
+                            <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" /></svg>
+                          </button>
+
+                          {/* Overlaid text content at bottom */}
+                          <div className="absolute inset-x-0 bottom-0 p-4 z-10">
+                            <h3 className="text-lg font-semibold truncate text-white">
+                              {project.name}
+                            </h3>
+                            <div className="flex items-center gap-2 mt-1">
+                              {/* Platform dots */}
+                              {project.platforms.length > 0 && (
+                                <div className="flex items-center gap-1">
+                                  {project.platforms.map(p => (
+                                    <div
+                                      key={p}
+                                      className="w-2 h-2 rounded-full"
+                                      style={{ background: platformColors[p] || platformColors.other }}
+                                      title={p}
+                                    />
+                                  ))}
+                                </div>
+                              )}
+                              <span className="text-xs" style={{ color: 'rgba(255,255,255,0.6)' }}>
+                                {project.captureCount || 0} capture{(project.captureCount || 0) !== 1 ? 's' : ''}
+                              </span>
+                              <span className="text-xs" style={{ color: 'rgba(255,255,255,0.4)' }}>·</span>
+                              <span className="text-xs" style={{ color: 'rgba(255,255,255,0.5)' }}>
+                                {formatDate(project.updatedAt)}
+                              </span>
+                            </div>
+                            {project.latestTitle && (
+                              <p className="text-xs mt-1.5 truncate" style={{ color: 'rgba(255,255,255,0.45)' }}>
+                                {project.latestTitle}
+                              </p>
+                            )}
+                            {!project.latestTitle && project.captureCount === 0 && (
+                              <p className="text-xs mt-1.5" style={{ color: 'rgba(255,255,255,0.3)' }}>
+                                No captures yet
+                              </p>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </>
             )}
           </>
         )}

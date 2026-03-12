@@ -11,6 +11,7 @@ import {
   updateCapture,
   moveCapture,
   copyCapture,
+  detectContentTag,
   INBOX_PROJECT_ID,
   type Project,
   type Capture,
@@ -323,6 +324,7 @@ export default function AllCapturesPage() {
               const bodyPreview = cleanBody(capture.body.split('\n---')[0]);
               const isEditing = editingCapture === capture.id;
               const projectName = projectMap[capture.projectId]?.name || 'Unknown';
+              const contentTag = capture.contentTag || detectContentTag(capture);
               return (
                 <div key={capture.id} className="capture-card group relative w-full text-left rounded-2xl overflow-hidden transition-all" style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border-subtle)' }}>
                   {/* Three-dot menu */}
@@ -371,18 +373,28 @@ export default function AllCapturesPage() {
                       <div className="relative w-full" style={{ height: '160px' }}>
                         <img src={capture.images[0]} alt="" className="w-full h-full object-cover" loading="lazy" referrerPolicy="no-referrer" onError={(e) => { const parent = (e.target as HTMLImageElement).closest('.relative') as HTMLElement | null; if (parent) parent.style.display = 'none'; }} />
                         <div className="absolute inset-0" style={{ background: 'linear-gradient(to top, var(--bg-elevated) 0%, transparent 60%)' }} />
-                        <span className="absolute top-3 left-3 px-2 py-0.5 rounded-md text-[10px] font-semibold" style={{ background: PLATFORM_LABELS[capture.platform]?.color + 'dd', color: '#fff', backdropFilter: 'blur(4px)' }}>
-                          {PLATFORM_LABELS[capture.platform]?.label}
-                        </span>
+                        <div className="absolute top-3 left-3 flex items-center gap-1.5">
+                          <span className="px-2 py-0.5 rounded-md text-[10px] font-semibold" style={{ background: PLATFORM_LABELS[capture.platform]?.color + 'dd', color: '#fff', backdropFilter: 'blur(4px)' }}>
+                            {PLATFORM_LABELS[capture.platform]?.label}
+                          </span>
+                          <span className="px-1.5 py-0.5 rounded text-[10px] font-medium" style={{ background: 'rgba(0,0,0,0.5)', color: 'var(--text-tertiary)', backdropFilter: 'blur(4px)' }}>
+                            {contentTag}
+                          </span>
+                        </div>
                       </div>
                     )}
 
                     <div className="p-4" style={{ marginTop: hasImage ? '-24px' : '0', position: 'relative' }}>
                       <div className="flex items-center gap-2 mb-2">
                         {!hasImage && (
-                          <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold" style={{ background: PLATFORM_LABELS[capture.platform]?.color + '20', color: PLATFORM_LABELS[capture.platform]?.color }}>
-                            {PLATFORM_LABELS[capture.platform]?.label}
-                          </span>
+                          <>
+                            <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold" style={{ background: PLATFORM_LABELS[capture.platform]?.color + '20', color: PLATFORM_LABELS[capture.platform]?.color }}>
+                              {PLATFORM_LABELS[capture.platform]?.label}
+                            </span>
+                            <span className="px-1.5 py-0.5 rounded text-[10px] font-medium" style={{ background: 'var(--bg-hover)', color: 'var(--text-tertiary)' }}>
+                              {contentTag}
+                            </span>
+                          </>
                         )}
                         {/* Project label */}
                         <span className="px-1.5 py-0.5 rounded text-[10px] font-medium" style={{ background: 'var(--bg-hover)', color: 'var(--text-tertiary)' }}>
