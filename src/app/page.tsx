@@ -344,7 +344,7 @@ export default function Home() {
                 <p className="text-xs mt-1.5 px-1" style={{ color: 'var(--danger)' }}>{fetchError}</p>
               )}
               {duplicateInfo && (
-                <div className="mt-2 px-3 py-2.5 rounded-xl text-xs flex items-center justify-between gap-3" style={{ background: 'var(--accent-dim)', border: '1px solid var(--accent)40' }}>
+                <div className="mt-2 px-3 py-2.5 rounded-xl text-xs flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 sm:gap-3" style={{ background: 'var(--accent-dim)', border: '1px solid var(--accent)40' }}>
                   <span style={{ color: 'var(--accent)' }}>
                     Already captured in <strong>{duplicateInfo.project.name}</strong>
                   </span>
@@ -401,6 +401,51 @@ export default function Home() {
                   <svg width="16" height="16" viewBox="0 0 16 16" fill="none" style={{ color: 'var(--text-tertiary)' }}>
                     <path d="M6 4l4 4-4 4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
                   </svg>
+                </div>
+              </div>
+            )}
+
+            {/* Onboarding Hero — shown when no captures yet */}
+            {totalCaptures === 0 && !loading && (
+              <div className="py-8 text-center">
+                <h2 className="text-2xl sm:text-3xl font-bold tracking-tight mb-2" style={{ color: 'var(--text-primary)' }}>
+                  Welcome to Bild
+                </h2>
+                <p className="text-base font-medium mb-3" style={{ color: 'var(--accent)' }}>
+                  Curate the internet for Claude.
+                </p>
+                <p className="text-sm max-w-md mx-auto mb-8" style={{ color: 'var(--text-secondary)', lineHeight: 1.7 }}>
+                  Paste any URL — Reddit posts, X threads, GitHub repos, articles — and Bild extracts the content, images, and metadata. Organize into projects, add your context, and package everything as a PDF ready for Claude&apos;s project files.
+                </p>
+
+                <div className="text-left max-w-md mx-auto">
+                  <p className="text-xs font-semibold tracking-wide uppercase mb-3" style={{ color: 'var(--text-tertiary)' }}>
+                    Try one of these
+                  </p>
+                  <div className="flex flex-col gap-2">
+                    {[
+                      { platform: 'reddit', color: '#FF4500', label: 'Reddit', title: 'A popular discussion thread', url: 'https://www.reddit.com/r/technology/comments/1j0ixq9/' },
+                      { platform: 'twitter', color: '#1DA1F2', label: 'X', title: 'An interesting thread', url: 'https://x.com/kaborojevic/status/1895848794612543905' },
+                      { platform: 'github', color: '#8B5CF6', label: 'GitHub', title: 'Claude Code repository', url: 'https://github.com/anthropics/claude-code' },
+                      { platform: 'article', color: '#10B981', label: 'Article', title: 'Anthropic Economic Index analysis', url: 'https://simonwillison.net/2025/Feb/7/anthropic-economic-index/' },
+                    ].map((example) => (
+                      <button
+                        key={example.url}
+                        onClick={() => { setUrlInput(example.url); urlInputRef.current?.focus(); }}
+                        className="w-full text-left px-4 py-3 rounded-xl flex items-center gap-3 transition-all active:scale-[0.98]"
+                        style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border-subtle)' }}
+                      >
+                        <div className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ background: example.color }} />
+                        <div className="flex-1 min-w-0">
+                          <span className="text-sm font-medium block" style={{ color: 'var(--text-primary)' }}>{example.title}</span>
+                          <span className="text-[11px] block truncate" style={{ color: 'var(--text-tertiary)' }}>{example.url}</span>
+                        </div>
+                        <span className="text-[10px] px-1.5 py-0.5 rounded font-medium flex-shrink-0" style={{ background: example.color + '20', color: example.color }}>
+                          {example.label}
+                        </span>
+                      </button>
+                    ))}
+                  </div>
                 </div>
               </div>
             )}
