@@ -1,0 +1,613 @@
+'use client';
+
+import { useState, useEffect, useRef, useCallback } from 'react';
+import { useRouter } from 'next/navigation';
+import {
+  getAllCaptures,
+  getProjects,
+  getProjectMap,
+  getProject,
+  deleteCapture,
+  updateCapture,
+  moveCapture,
+  copyCapture,
+  INBOX_PROJECT_ID,
+  type Project,
+  type Capture,
+  type Platform,
+} from '@/lib/db';
+import { exportCapturePdf } from '@/lib/pdf-export';
+
+const PLATFORMS: { key: Platform | 'all'; label: string; color: string }[] = [
+  { key: 'all', label: 'All', color: '#f0f0f0' },
+  { key: 'reddit', label: 'Reddit', color: '#FF4500' },
+  { key: 'twitter', label: 'X', color: '#1DA1F2' },
+  { key: 'github', label: 'GitHub', color: '#8B5CF6' },
+  { key: 'article', label: 'Article', color: '#10B981' },
+];
+
+const PLATFORM_LABELS: Record<string, { label: string; color: string }> = {
+  reddit: { label: 'Reddit', color: '#FF4500' },
+  twitter: { label: 'X', color: '#1DA1F2' },
+  github: { label: 'GitHub', color: '#8B5CF6' },
+  article: { label: 'Article', color: '#10B981' },
+  other: { label: 'Other', color: '#6B7280' },
+};
+
+export default function AllCapturesPage() {
+  const router = useRouter();
+
+  const [captures, setCaptures] = useState<Capture[]>([]);
+  const [projectMap, setProjectMap] = useState<Record<string, Project>>({});
+  const [loading, setLoading] = useState(true);
+  const [activeFilter, setActiveFilter] = useState<Platform | 'all'>('all');
+  const [viewing, setViewing] = useState<Capture | null>(null);
+  const [menuOpen, setMenuOpen] = useState<string | null>(null);
+  const [confirmDelete, setConfirmDelete] = useState<Capture | null>(null);
+  const [moveTarget, setMoveTarget] = useState<Capture | null>(null);
+  const [allProjects, setAllProjects] = useState<Project[]>([]);
+  const [copyTarget, setCopyTarget] = useState<Capture | null>(null);
+  const [copyProjects, setCopyProjects] = useState<Project[]>([]);
+  const [editingCapture, setEditingCapture] = useState<string | null>(null);
+  const [editTitle, setEditTitle] = useState('');
+  const [editNote, setEditNote] = useState('');
+  const [editingNote, setEditingNote] = useState(false);
+  const [noteText, setNoteText] = useState('');
+  const menuRef = useRef<HTMLDivElement>(null);
+  const noteInputRef = useRef<HTMLTextAreaElement>(null);
+
+  const loadData = useCallback(async () => {
+    try {
+      const [c, pm] = await Promise.all([getAllCaptures(), getProjectMap()]);
+      setCaptures(c);
+      setProjectMap(pm);
+    } catch (e) {
+      console.error('Failed to load captures:', e);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => { loadData(); }, [loadData]);
+
+  // Close menu on click outside
+  useEffect(() => {
+    if (!menuOpen) return;
+    const handler = (e: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) setMenuOpen(null);
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [menuOpen]);
+
+  useEffect(() => { if (editingNote && noteInputRef.current) noteInputRef.current.focus(); }, [editingNote]);
+
+  const filteredCaptures = activeFilter === 'all'
+    ? captures
+    : captures.filter(c => c.platform === activeFilter);
+
+  const platformCounts: Record<string, number> = {};
+  for (const c of captures) {
+    platformCounts[c.platform] = (platformCounts[c.platform] || 0) + 1;
+  }
+
+  async function handleCardExportPdf(capture: Capture) {
+    setMenuOpen(null);
+    try {
+      const project = await getProject(capture.projectId);
+      if (!project) return;
+      const blob = await exportCapturePdf(project, capture);
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${capture.title.slice(0, 40).replace(/[^a-zA-Z0-9 ]/g, '')}.pdf`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      console.error('PDF export failed:', e);
+    }
+  }
+
+  async function handleConfirmDelete() {
+    if (!confirmDelete) return;
+    try {
+      await deleteCapture(confirmDelete.id, confirmDelete.projectId);
+      setConfirmDelete(null);
+      setViewing(null);
+      await loadData();
+    } catch (e) {
+      console.error('Delete failed:', e);
+    }
+  }
+
+  async function handleOpenMoveModal(capture: Capture) {
+    setMenuOpen(null);
+    setMoveTarget(capture);
+    try {
+      const projects = await getProjects();
+      setAllProjects(projects.filter(p => p.id !== capture.projectId));
+    } catch (e) {
+      console.error('Load projects failed:', e);
+    }
+  }
+
+  async function handleMoveCapture(toProjectId: string) {
+    if (!moveTarget) return;
+    try {
+      await moveCapture(moveTarget.id, moveTarget.projectId, toProjectId);
+      setMoveTarget(null);
+      setViewing(null);
+      await loadData();
+    } catch (e) {
+      console.error('Move failed:', e);
+    }
+  }
+
+  async function handleOpenCopyModal(capture: Capture) {
+    setMenuOpen(null);
+    setCopyTarget(capture);
+    try {
+      const projects = await getProjects();
+      setCopyProjects(projects.filter(p => p.id !== capture.projectId));
+    } catch (e) {
+      console.error('Load projects failed:', e);
+    }
+  }
+
+  async function handleCopyCapture(toProjectId: string) {
+    if (!copyTarget) return;
+    try {
+      await copyCapture(copyTarget.id, toProjectId);
+      setCopyTarget(null);
+      await loadData();
+    } catch (e) {
+      console.error('Copy failed:', e);
+    }
+  }
+
+  function handleStartEdit(capture: Capture) {
+    setMenuOpen(null);
+    setEditingCapture(capture.id);
+    setEditTitle(capture.title);
+    setEditNote(capture.note || '');
+  }
+
+  async function handleSaveEdit(captureId: string) {
+    try {
+      await updateCapture(captureId, { title: editTitle, note: editNote });
+      setEditingCapture(null);
+      await loadData();
+    } catch (e) {
+      console.error('Save edit failed:', e);
+    }
+  }
+
+  function formatTime(ts: number) {
+    return new Date(ts).toLocaleDateString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+  }
+
+  function truncate(text: string, len: number) {
+    return text.length > len ? text.slice(0, len) + '...' : text;
+  }
+
+  function cleanBody(text: string) {
+    return text
+      .replace(/\[image:[^\]]+\]\n?\n?/g, '')
+      .replace(/^#{1,6}\s+/gm, '')
+      .replace(/\*\*(.+?)\*\*/g, '$1')
+      .replace(/\*(.+?)\*/g, '$1')
+      .replace(/__(.+?)__/g, '$1')
+      .replace(/_(.+?)_/g, '$1')
+      .replace(/~~(.+?)~~/g, '$1')
+      .replace(/`{1,3}([^`]+)`{1,3}/g, '$1')
+      .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
+      .replace(/^\s*[-*+]\s+/gm, '')
+      .replace(/^\s*\d+\.\s+/gm, '')
+      .replace(/^\s*>\s?/gm, '')
+      .replace(/\n{3,}/g, '\n\n')
+      .trim();
+  }
+
+  // Basic markdown rendering for detail view
+  function renderMarkdownLine(line: string, key: string): React.ReactNode {
+    function renderInline(text: string): React.ReactNode[] {
+      const parts: React.ReactNode[] = [];
+      const regex = /(\*\*(.+?)\*\*)|(`([^`]+)`)|(\[([^\]]+)\]\(([^)]+)\))/g;
+      let lastIndex = 0;
+      let match;
+      let partKey = 0;
+      while ((match = regex.exec(text)) !== null) {
+        if (match.index > lastIndex) parts.push(text.slice(lastIndex, match.index));
+        if (match[1]) parts.push(<strong key={partKey++} style={{ color: 'var(--text-primary)', fontWeight: 600 }}>{match[2]}</strong>);
+        else if (match[3]) parts.push(<code key={partKey++} className="font-mono text-[0.9em] px-1.5 py-0.5 rounded" style={{ background: 'var(--bg)', color: 'var(--accent)' }}>{match[4]}</code>);
+        else if (match[5]) parts.push(<a key={partKey++} href={match[7]} target="_blank" rel="noopener noreferrer" className="underline" style={{ color: 'var(--accent)' }}>{match[6]}</a>);
+        lastIndex = match.index + match[0].length;
+      }
+      if (lastIndex < text.length) parts.push(text.slice(lastIndex));
+      return parts;
+    }
+
+    const headerMatch = line.match(/^(#{1,6})\s+(.*)/);
+    if (headerMatch) {
+      const level = headerMatch[1].length;
+      const sizes = ['text-xl', 'text-lg', 'text-base', 'text-sm', 'text-sm', 'text-sm'];
+      return <div key={key} className={`${sizes[level - 1]} font-semibold mt-4 mb-2`} style={{ color: 'var(--text-primary)' }}>{renderInline(headerMatch[2])}</div>;
+    }
+    if (line.match(/^\s*[-*+]\s+/)) {
+      return <div key={key} className="flex gap-2 ml-2 mb-1"><span style={{ color: 'var(--text-tertiary)' }}>&#x2022;</span><span>{renderInline(line.replace(/^\s*[-*+]\s+/, ''))}</span></div>;
+    }
+    if (line.match(/^\s*\d+\.\s+/)) {
+      const num = line.match(/^\s*(\d+)\.\s+/)?.[1] || '';
+      return <div key={key} className="flex gap-2 ml-2 mb-1"><span style={{ color: 'var(--text-tertiary)' }}>{num}.</span><span>{renderInline(line.replace(/^\s*\d+\.\s+/, ''))}</span></div>;
+    }
+    if (line.match(/^\s*>\s?/)) {
+      return <div key={key} className="pl-3 my-1" style={{ borderLeft: '2px solid var(--accent)', color: 'var(--text-secondary)' }}>{renderInline(line.replace(/^\s*>\s?/, ''))}</div>;
+    }
+    if (line.trim() === '') return <div key={key} className="h-3" />;
+    return <p key={key} className="mb-2">{renderInline(line)}</p>;
+  }
+
+  function renderMarkdownBody(text: string): React.ReactNode[] {
+    const lines = text.split('\n');
+    return lines.map((line, i) => renderMarkdownLine(line, `line-${i}`));
+  }
+
+  if (loading) {
+    return (
+      <main className="min-h-dvh safe-top safe-bottom">
+        <div className="flex items-center justify-center py-20">
+          <div className="w-5 h-5 rounded-full border-2 animate-spin" style={{ borderColor: 'var(--border)', borderTopColor: 'var(--accent)' }} />
+        </div>
+      </main>
+    );
+  }
+
+  return (
+    <main className="min-h-dvh safe-top safe-bottom">
+      {/* Header */}
+      <header className="px-5 pt-8 pb-4 max-w-5xl mx-auto">
+        <button
+          onClick={() => router.push('/')}
+          className="flex items-center gap-1.5 text-sm mb-4 transition-colors"
+          style={{ color: 'var(--text-tertiary)' }}
+        >
+          <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
+            <path d="M10 4l-4 4 4 4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+          Back
+        </button>
+        <h1 className="text-2xl font-bold tracking-tight" style={{ color: 'var(--text-primary)' }}>
+          All Captures
+        </h1>
+        <p className="text-sm mt-1" style={{ color: 'var(--text-tertiary)' }}>
+          {captures.length} capture{captures.length !== 1 ? 's' : ''} across {Object.keys(projectMap).length} project{Object.keys(projectMap).length !== 1 ? 's' : ''}
+        </p>
+      </header>
+
+      {/* Platform filter tabs */}
+      <div className="px-5 pb-4 max-w-5xl mx-auto">
+        <div className="flex gap-2 overflow-x-auto pb-1" style={{ scrollbarWidth: 'none' }}>
+          {PLATFORMS.map(({ key, label, color }) => {
+            const count = key === 'all' ? captures.length : (platformCounts[key] || 0);
+            if (key !== 'all' && count === 0) return null;
+            const isActive = activeFilter === key;
+            return (
+              <button
+                key={key}
+                onClick={() => setActiveFilter(key)}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium whitespace-nowrap transition-all"
+                style={{
+                  background: isActive ? color + '20' : 'var(--bg-elevated)',
+                  color: isActive ? color : 'var(--text-tertiary)',
+                  border: `1px solid ${isActive ? color + '40' : 'var(--border-subtle)'}`,
+                }}
+              >
+                {label}
+                <span className="text-[10px] opacity-70">{count}</span>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* Captures Grid */}
+      <div className="px-5 pb-8 max-w-5xl mx-auto">
+        {filteredCaptures.length === 0 ? (
+          <div className="flex flex-col items-center justify-center py-16 text-center">
+            <p className="text-sm" style={{ color: 'var(--text-tertiary)' }}>No captures yet</p>
+          </div>
+        ) : (
+          <div className="capture-grid stagger-children">
+            {filteredCaptures.map((capture) => {
+              const hasImage = capture.images && capture.images.length > 0 && capture.platform !== 'github';
+              const bodyPreview = cleanBody(capture.body.split('\n---')[0]);
+              const isEditing = editingCapture === capture.id;
+              const projectName = projectMap[capture.projectId]?.name || 'Unknown';
+              return (
+                <div key={capture.id} className="capture-card group relative w-full text-left rounded-2xl overflow-hidden transition-all" style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border-subtle)' }}>
+                  {/* Three-dot menu */}
+                  <div className="absolute top-2 right-2 z-10" ref={menuOpen === capture.id ? menuRef : undefined}>
+                    <button
+                      onClick={(e) => { e.stopPropagation(); setMenuOpen(menuOpen === capture.id ? null : capture.id); }}
+                      className="w-7 h-7 flex items-center justify-center rounded-full transition-colors"
+                      style={{ background: 'var(--bg-elevated)cc', backdropFilter: 'blur(8px)' }}
+                    >
+                      <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><circle cx="8" cy="3" r="1.25" fill="currentColor" style={{ color: 'var(--text-tertiary)' }} /><circle cx="8" cy="8" r="1.25" fill="currentColor" style={{ color: 'var(--text-tertiary)' }} /><circle cx="8" cy="13" r="1.25" fill="currentColor" style={{ color: 'var(--text-tertiary)' }} /></svg>
+                    </button>
+                    {menuOpen === capture.id && (
+                      <div className="absolute right-0 top-8 w-44 py-1 rounded-xl shadow-lg z-20" style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border)' }}>
+                        <button onClick={(e) => { e.stopPropagation(); handleCardExportPdf(capture); }} className="w-full text-left px-3 py-2 text-xs flex items-center gap-2 hover:bg-white/5 transition-colors" style={{ color: 'var(--text-secondary)' }}>
+                          <svg width="13" height="13" viewBox="0 0 24 24" fill="none"><path d="M12 4v12m0 0l-4-4m4 4l4-4M4 18h16" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" /></svg>
+                          Save as PDF
+                        </button>
+                        <button onClick={(e) => { e.stopPropagation(); handleStartEdit(capture); }} className="w-full text-left px-3 py-2 text-xs flex items-center gap-2 hover:bg-white/5 transition-colors" style={{ color: 'var(--text-secondary)' }}>
+                          <svg width="13" height="13" viewBox="0 0 24 24" fill="none"><path d="M15.232 5.232l3.536 3.536M9 13l-2 2v3h3l9-9a2.5 2.5 0 00-3.536-3.536L9 13z" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" /></svg>
+                          Edit
+                        </button>
+                        <button onClick={(e) => { e.stopPropagation(); handleOpenMoveModal(capture); }} className="w-full text-left px-3 py-2 text-xs flex items-center gap-2 hover:bg-white/5 transition-colors" style={{ color: 'var(--text-secondary)' }}>
+                          <svg width="13" height="13" viewBox="0 0 24 24" fill="none"><path d="M3 7h4l3-3h4l3 3h4M5 7v10a2 2 0 002 2h10a2 2 0 002-2V7" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" /></svg>
+                          Move to project
+                        </button>
+                        <button onClick={(e) => { e.stopPropagation(); handleOpenCopyModal(capture); }} className="w-full text-left px-3 py-2 text-xs flex items-center gap-2 hover:bg-white/5 transition-colors" style={{ color: 'var(--text-secondary)' }}>
+                          <svg width="13" height="13" viewBox="0 0 24 24" fill="none"><rect x="8" y="8" width="12" height="12" rx="2" stroke="currentColor" strokeWidth="1.5" /><path d="M16 8V6a2 2 0 00-2-2H6a2 2 0 00-2 2v8a2 2 0 002 2h2" stroke="currentColor" strokeWidth="1.5" /></svg>
+                          Copy to project
+                        </button>
+                        <div className="my-1" style={{ borderTop: '1px solid var(--border-subtle)' }} />
+                        <button onClick={(e) => { e.stopPropagation(); setMenuOpen(null); setConfirmDelete(capture); }} className="w-full text-left px-3 py-2 text-xs flex items-center gap-2 hover:bg-white/5 transition-colors" style={{ color: 'var(--danger)' }}>
+                          <svg width="13" height="13" viewBox="0 0 24 24" fill="none"><path d="M6 7h12M9 7V5a1 1 0 011-1h4a1 1 0 011 1v2m2 0v12a2 2 0 01-2 2H9a2 2 0 01-2-2V7h10z" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" /></svg>
+                          Delete
+                        </button>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Card content */}
+                  <button
+                    onClick={() => { if (!isEditing) setViewing(capture); }}
+                    className="w-full text-left"
+                    disabled={isEditing}
+                  >
+                    {hasImage && (
+                      <div className="relative w-full" style={{ height: '160px' }}>
+                        <img src={capture.images[0]} alt="" className="w-full h-full object-cover" loading="lazy" referrerPolicy="no-referrer" onError={(e) => { const parent = (e.target as HTMLImageElement).closest('.relative') as HTMLElement | null; if (parent) parent.style.display = 'none'; }} />
+                        <div className="absolute inset-0" style={{ background: 'linear-gradient(to top, var(--bg-elevated) 0%, transparent 60%)' }} />
+                        <span className="absolute top-3 left-3 px-2 py-0.5 rounded-md text-[10px] font-semibold" style={{ background: PLATFORM_LABELS[capture.platform]?.color + 'dd', color: '#fff', backdropFilter: 'blur(4px)' }}>
+                          {PLATFORM_LABELS[capture.platform]?.label}
+                        </span>
+                      </div>
+                    )}
+
+                    <div className="p-4" style={{ marginTop: hasImage ? '-24px' : '0', position: 'relative' }}>
+                      <div className="flex items-center gap-2 mb-2">
+                        {!hasImage && (
+                          <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold" style={{ background: PLATFORM_LABELS[capture.platform]?.color + '20', color: PLATFORM_LABELS[capture.platform]?.color }}>
+                            {PLATFORM_LABELS[capture.platform]?.label}
+                          </span>
+                        )}
+                        {/* Project label */}
+                        <span className="px-1.5 py-0.5 rounded text-[10px] font-medium" style={{ background: 'var(--bg-hover)', color: 'var(--text-tertiary)' }}>
+                          {projectName}
+                        </span>
+                      </div>
+
+                      {isEditing ? (
+                        <input
+                          value={editTitle}
+                          onChange={(e) => setEditTitle(e.target.value)}
+                          onClick={(e) => e.stopPropagation()}
+                          className="w-full text-sm font-semibold mb-1.5 px-2 py-1 rounded-lg outline-none"
+                          style={{ color: 'var(--text-primary)', lineHeight: 1.4, background: 'var(--bg)', border: '1px solid var(--border)' }}
+                          autoFocus
+                        />
+                      ) : (
+                        <h3 className="text-sm font-semibold mb-1.5 line-clamp-2" style={{ color: 'var(--text-primary)', lineHeight: 1.4 }}>
+                          {capture.title}
+                        </h3>
+                      )}
+
+                      <p className="text-xs mb-3 line-clamp-3" style={{ color: 'var(--text-tertiary)', lineHeight: 1.5 }}>
+                        {truncate(bodyPreview, 160)}
+                      </p>
+
+                      <div className="flex items-center justify-between">
+                        <span className="text-[11px] truncate" style={{ color: 'var(--text-tertiary)', maxWidth: '60%' }}>{capture.author}</span>
+                        <span className="text-[10px] font-mono" style={{ color: 'var(--text-tertiary)', opacity: 0.6 }}>{formatTime(capture.createdAt)}</span>
+                      </div>
+
+                      {isEditing ? (
+                        <textarea
+                          value={editNote}
+                          onChange={(e) => setEditNote(e.target.value)}
+                          onClick={(e) => e.stopPropagation()}
+                          placeholder="Context for Claude..."
+                          rows={2}
+                          className="w-full mt-2 px-2 py-1.5 rounded-lg text-[11px] outline-none resize-none"
+                          style={{ background: 'var(--bg)', border: '1px solid var(--border)', color: 'var(--text-primary)', lineHeight: 1.5 }}
+                        />
+                      ) : capture.note ? (
+                        <p className="text-[10px] mt-2 px-2 py-1 rounded-lg truncate" style={{ background: 'var(--accent-dim)', color: 'var(--accent)' }}>&#x1f9e0; {truncate(capture.note, 50)}</p>
+                      ) : null}
+                    </div>
+                  </button>
+
+                  {isEditing && (
+                    <div className="flex gap-2 px-4 pb-3 justify-end">
+                      <button onClick={() => setEditingCapture(null)} className="px-3 py-1.5 rounded-lg text-xs" style={{ color: 'var(--text-tertiary)' }}>Cancel</button>
+                      <button onClick={() => handleSaveEdit(capture.id)} className="px-4 py-1.5 rounded-lg text-xs font-semibold" style={{ background: 'var(--accent)', color: 'var(--bg)' }}>Save</button>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
+      {/* ── Detail View Modal ── */}
+      {viewing && (
+        <div
+          className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto"
+          style={{ background: 'rgba(0,0,0,0.7)', backdropFilter: 'blur(4px)' }}
+          onClick={(e) => { if (e.target === e.currentTarget) setViewing(null); }}
+        >
+          <div className="w-full max-w-2xl mx-4 my-8 rounded-2xl overflow-hidden animate-fade-up" style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border)' }}>
+            {/* Header */}
+            <div className="flex items-center justify-between px-5 py-4" style={{ borderBottom: '1px solid var(--border-subtle)' }}>
+              <div className="flex items-center gap-2 min-w-0">
+                <span className="px-2 py-0.5 rounded-md text-[10px] font-semibold flex-shrink-0" style={{ background: PLATFORM_LABELS[viewing.platform]?.color + '20', color: PLATFORM_LABELS[viewing.platform]?.color }}>
+                  {PLATFORM_LABELS[viewing.platform]?.label}
+                </span>
+                <span className="px-1.5 py-0.5 rounded text-[10px] font-medium flex-shrink-0" style={{ background: 'var(--bg-hover)', color: 'var(--text-tertiary)' }}>
+                  {projectMap[viewing.projectId]?.name || 'Unknown'}
+                </span>
+                <span className="text-xs truncate" style={{ color: 'var(--text-tertiary)' }}>{viewing.author}</span>
+              </div>
+              <button onClick={() => setViewing(null)} className="p-1 rounded-lg flex-shrink-0" style={{ color: 'var(--text-tertiary)' }}>
+                <svg width="18" height="18" viewBox="0 0 16 16" fill="none"><path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" /></svg>
+              </button>
+            </div>
+
+            {/* Hero image */}
+            {viewing.images && viewing.images.length > 0 && (
+              <div className="relative w-full" style={{ maxHeight: '300px', overflow: 'hidden' }}>
+                <img src={viewing.images[0]} alt="" className="w-full object-cover" referrerPolicy="no-referrer" />
+              </div>
+            )}
+
+            {/* Content */}
+            <div className="px-5 py-4">
+              <h2 className="text-lg font-bold mb-3" style={{ color: 'var(--text-primary)', lineHeight: 1.3 }}>{viewing.title}</h2>
+              <div className="text-sm leading-relaxed" style={{ color: 'var(--text-secondary)' }}>
+                {renderMarkdownBody(viewing.body)}
+              </div>
+
+              {/* Additional images */}
+              {viewing.images && viewing.images.length > 1 && (
+                <div className="mt-4 grid grid-cols-2 gap-2">
+                  {viewing.images.slice(1).map((img, i) => (
+                    <img key={i} src={img} alt="" className="w-full rounded-lg object-cover" style={{ maxHeight: '200px' }} referrerPolicy="no-referrer" />
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* Context for Claude */}
+            <div className="px-5 py-3" style={{ borderTop: '1px solid var(--border-subtle)' }}>
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-xs font-semibold tracking-wide uppercase" style={{ color: 'var(--accent)' }}>Context for Claude</span>
+                <button onClick={() => { setEditingNote(!editingNote); setNoteText(viewing.note || ''); }} className="text-[10px] px-2 py-0.5 rounded" style={{ color: 'var(--text-tertiary)', border: '1px solid var(--border-subtle)' }}>
+                  {editingNote ? 'Cancel' : (viewing.note ? 'Edit' : 'Add')}
+                </button>
+              </div>
+              {editingNote ? (
+                <div>
+                  <textarea
+                    ref={noteInputRef}
+                    value={noteText}
+                    onChange={(e) => setNoteText(e.target.value)}
+                    placeholder="Why did you save this? What should Claude focus on?"
+                    rows={3}
+                    className="w-full px-3 py-2 rounded-xl text-sm outline-none resize-none"
+                    style={{ background: 'var(--bg)', border: '1px solid var(--border)', color: 'var(--text-primary)', lineHeight: 1.6 }}
+                  />
+                  <div className="flex justify-end mt-2">
+                    <button
+                      onClick={async () => {
+                        await updateCapture(viewing.id, { note: noteText });
+                        setViewing({ ...viewing, note: noteText });
+                        setEditingNote(false);
+                        await loadData();
+                      }}
+                      className="px-4 py-1.5 rounded-lg text-xs font-semibold"
+                      style={{ background: 'var(--accent)', color: 'var(--bg)' }}
+                    >
+                      Save
+                    </button>
+                  </div>
+                </div>
+              ) : viewing.note ? (
+                <p className="text-sm" style={{ color: 'var(--text-secondary)', lineHeight: 1.6 }}>{viewing.note}</p>
+              ) : (
+                <p className="text-xs" style={{ color: 'var(--text-tertiary)' }}>No context added yet</p>
+              )}
+            </div>
+
+            {/* Footer with source link */}
+            <div className="px-5 py-3 flex items-center justify-between" style={{ borderTop: '1px solid var(--border-subtle)' }}>
+              <span className="text-[10px] font-mono" style={{ color: 'var(--text-tertiary)' }}>{formatTime(viewing.createdAt)}</span>
+              <a href={viewing.url} target="_blank" rel="noopener noreferrer" className="text-xs underline" style={{ color: 'var(--accent)' }}>View source</a>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Delete Modal */}
+      {confirmDelete && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center" style={{ background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(4px)' }}>
+          <div className="w-full max-w-sm mx-4 p-5 rounded-2xl" style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border)' }}>
+            <h3 className="text-base font-semibold mb-2" style={{ color: 'var(--text-primary)' }}>Delete this capture?</h3>
+            <p className="text-sm mb-5" style={{ color: 'var(--text-tertiary)' }}>This can&apos;t be undone.</p>
+            <div className="flex gap-2 justify-end">
+              <button onClick={() => setConfirmDelete(null)} className="px-4 py-2 rounded-xl text-sm" style={{ color: 'var(--text-secondary)', border: '1px solid var(--border)' }}>Cancel</button>
+              <button onClick={handleConfirmDelete} className="px-4 py-2 rounded-xl text-sm font-semibold text-white" style={{ background: 'var(--danger)' }}>Delete</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Move to Project Modal */}
+      {moveTarget && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center" style={{ background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(4px)' }}>
+          <div className="w-full max-w-sm mx-4 rounded-2xl overflow-hidden" style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border)' }}>
+            <div className="px-5 py-4" style={{ borderBottom: '1px solid var(--border-subtle)' }}>
+              <h3 className="text-base font-semibold" style={{ color: 'var(--text-primary)' }}>Move to project</h3>
+              <p className="text-xs mt-1" style={{ color: 'var(--text-tertiary)' }}>Select a destination for &ldquo;{truncate(moveTarget.title, 40)}&rdquo;</p>
+            </div>
+            <div className="max-h-64 overflow-auto">
+              {allProjects.length === 0 ? (
+                <p className="px-5 py-6 text-sm text-center" style={{ color: 'var(--text-tertiary)' }}>No other projects</p>
+              ) : (
+                allProjects.map(p => (
+                  <button key={p.id} onClick={() => handleMoveCapture(p.id)} className="w-full text-left px-5 py-3 flex items-center justify-between hover:bg-white/5 transition-colors" style={{ borderBottom: '1px solid var(--border-subtle)' }}>
+                    <span className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>{p.name}</span>
+                    <span className="text-xs" style={{ color: 'var(--text-tertiary)' }}>{p.captureCount} capture{p.captureCount !== 1 ? 's' : ''}</span>
+                  </button>
+                ))
+              )}
+            </div>
+            <div className="px-5 py-3" style={{ borderTop: '1px solid var(--border-subtle)' }}>
+              <button onClick={() => setMoveTarget(null)} className="w-full py-2 rounded-xl text-sm" style={{ color: 'var(--text-secondary)', border: '1px solid var(--border)' }}>Cancel</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Copy to Project Modal */}
+      {copyTarget && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center" style={{ background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(4px)' }}>
+          <div className="w-full max-w-sm mx-4 rounded-2xl overflow-hidden" style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border)' }}>
+            <div className="px-5 py-4" style={{ borderBottom: '1px solid var(--border-subtle)' }}>
+              <h3 className="text-base font-semibold" style={{ color: 'var(--text-primary)' }}>Copy to project</h3>
+              <p className="text-xs mt-1" style={{ color: 'var(--text-tertiary)' }}>Copy &ldquo;{truncate(copyTarget.title, 40)}&rdquo; — original stays in current project</p>
+            </div>
+            <div className="max-h-64 overflow-auto">
+              {copyProjects.length === 0 ? (
+                <p className="px-5 py-6 text-sm text-center" style={{ color: 'var(--text-tertiary)' }}>No other projects</p>
+              ) : (
+                copyProjects.map(p => (
+                  <button key={p.id} onClick={() => handleCopyCapture(p.id)} className="w-full text-left px-5 py-3 flex items-center justify-between hover:bg-white/5 transition-colors" style={{ borderBottom: '1px solid var(--border-subtle)' }}>
+                    <span className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>{p.name}</span>
+                    <span className="text-xs" style={{ color: 'var(--text-tertiary)' }}>{p.captureCount} capture{p.captureCount !== 1 ? 's' : ''}</span>
+                  </button>
+                ))
+              )}
+            </div>
+            <div className="px-5 py-3" style={{ borderTop: '1px solid var(--border-subtle)' }}>
+              <button onClick={() => setCopyTarget(null)} className="w-full py-2 rounded-xl text-sm" style={{ color: 'var(--text-secondary)', border: '1px solid var(--border)' }}>Cancel</button>
+            </div>
+          </div>
+        </div>
+      )}
+    </main>
+  );
+}
