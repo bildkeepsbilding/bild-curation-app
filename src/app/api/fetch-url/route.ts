@@ -846,6 +846,100 @@ function parseTwitterUrl(url: string): { username: string; statusId: string } {
   return { username: match[1], statusId: match[2] };
 }
 
+// ── Thread expansion via FxTwitter reply chain walking ──
+// Walks backwards from a tweet via replying_to_status to find the full self-thread
+// (same author replying to themselves). Returns tweets in chronological order.
+interface FxTweet {
+  id: string;
+  text: string;
+  author: { screen_name: string; name?: string };
+  replying_to: string | null;
+  replying_to_status: string | null;
+  media?: { photos?: Array<{ url: string }>; videos?: Array<{ thumbnail_url: string }> };
+  likes: number;
+  retweets: number;
+  replies: number;
+  views: number;
+  created_at: string | null;
+  is_note_tweet?: boolean;
+  twitter_card?: string;
+  article?: Record<string, unknown>;
+}
+
+async function fetchFxTweet(username: string, statusId: string): Promise<FxTweet | null> {
+  try {
+    const response = await fetch(`https://api.fxtwitter.com/${username}/status/${statusId}`, {
+      headers: { 'User-Agent': 'BildCurationApp/1.0' },
+    });
+    if (!response.ok) return null;
+    const data = await response.json();
+    return data?.tweet || null;
+  } catch {
+    return null;
+  }
+}
+
+function extractImagesFromFxTweet(tweet: FxTweet): string[] {
+  const images: string[] = [];
+  if (tweet.media?.photos) {
+    for (const p of tweet.media.photos) {
+      if (p.url) images.push(p.url);
+    }
+  }
+  if (tweet.media?.videos) {
+    for (const v of tweet.media.videos) {
+      if (v.thumbnail_url) images.push(v.thumbnail_url);
+    }
+  }
+  return images;
+}
+
+async function fetchThreadViaFxTwitter(username: string, statusId: string): Promise<{
+  tweets: Array<{ text: string; images: string[] }>;
+  rootTweet: FxTweet;
+} | null> {
+  // Fetch the linked tweet first
+  const rootTweet = await fetchFxTweet(username, statusId);
+  if (!rootTweet) return null;
+
+  const authorHandle = rootTweet.author?.screen_name?.toLowerCase() || username.toLowerCase();
+  const chain: Array<{ text: string; images: string[] }> = [{
+    text: rootTweet.text || '',
+    images: extractImagesFromFxTweet(rootTweet),
+  }];
+
+  // Walk backwards through self-replies (same author replying to themselves)
+  // Limit to 25 tweets to avoid infinite loops
+  let currentTweet = rootTweet;
+  let walked = 0;
+  const maxWalk = 25;
+
+  while (
+    walked < maxWalk &&
+    currentTweet.replying_to?.toLowerCase() === authorHandle &&
+    currentTweet.replying_to_status
+  ) {
+    const parentTweet = await fetchFxTweet(authorHandle, currentTweet.replying_to_status);
+    if (!parentTweet) break;
+
+    // Verify it's still the same author (self-thread)
+    if (parentTweet.author?.screen_name?.toLowerCase() !== authorHandle) break;
+
+    chain.unshift({
+      text: parentTweet.text || '',
+      images: extractImagesFromFxTweet(parentTweet),
+    });
+
+    currentTweet = parentTweet;
+    walked++;
+  }
+
+  // Only return as thread if we found multiple tweets
+  if (chain.length < 2) return null;
+
+  return { tweets: chain, rootTweet };
+}
+
 // Strategy 1: FxTwitter API (free, no auth, handles regular + note tweets)
 async function fetchViaFxTwitter(username: string, statusId: string): Promise<{
   text: string;
@@ -1157,7 +1251,42 @@ async function fetchViaOEmbed(url: string): Promise<{
 async function fetchTwitter(url: string) {
   const { username, statusId } = parseTwitterUrl(url);
 
-  // Track best result across strategies
+  // ── Thread expansion: try to fetch full self-thread first ──
+  const threadResult = await fetchThreadViaFxTwitter(username, statusId);
+  if (threadResult) {
+    const { tweets, rootTweet } = threadResult;
+    // Concatenate all tweets with separators
+    const threadBody = tweets.map(t => t.text.replace(/https:\/\/t\.co\/\w+/g, '').trim()).join('\n\n---\n\n');
+    // Collect all images from all tweets in thread
+    const allImages: string[] = [];
+    for (const t of tweets) {
+      for (const img of t.images) {
+        if (!allImages.includes(img)) allImages.push(img);
+      }
+    }
+    const threadAuthor = rootTweet.author?.screen_name || username;
+    const title = threadBody.slice(0, 100) + (threadBody.length > 100 ? '...' : '');
+
+    return {
+      platform: 'twitter',
+      title,
+      body: threadBody,
+      author: threadAuthor.startsWith('@') ? threadAuthor : `@${threadAuthor}`,
+      images: allImages,
+      metadata: {
+        likes: rootTweet.likes || 0,
+        retweets: rootTweet.retweets || 0,
+        replies: rootTweet.replies || 0,
+        views: rootTweet.views || null,
+        date: rootTweet.created_at || null,
+        isArticle: false,
+        source: 'fxtwitter-thread',
+        threadLength: tweets.length,
+      },
+    };
+  }
+
+  // Track best result across strategies (single tweet / article)
   let bestBody = '';
   let author = username;
   let images: string[] = [];

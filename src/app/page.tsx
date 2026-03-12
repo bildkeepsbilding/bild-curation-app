@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
-import { getProjects, getCaptures, getAllCaptures, getProjectMap, createProject, deleteProject, ensureInbox, addCapture, findCaptureByUrl, getUniqueContentTag, INBOX_PROJECT_ID, type Project, type Capture } from '@/lib/db';
+import { getProjects, getCaptures, getAllCaptures, getProjectMap, createProject, deleteProject, ensureInbox, addCapture, findCaptureByUrl, getUniqueContentTag, retagAllCaptures, INBOX_PROJECT_ID, type Project, type Capture } from '@/lib/db';
 
 interface ProjectWithCover extends Project {
   coverImage?: string;
@@ -45,6 +45,9 @@ export default function Home() {
     try {
       // Ensure Inbox exists
       await ensureInbox();
+
+      // Re-tag existing captures with latest detection logic
+      await retagAllCaptures();
 
       const p = await getProjects();
       // Enrich all projects with cover images, latest title, platform info
