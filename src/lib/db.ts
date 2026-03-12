@@ -27,6 +27,7 @@ export interface Capture {
   note: string;
   tags: string[];
   createdAt: number;
+  sortOrder?: number;
 }
 
 function generateId(): string {
@@ -209,7 +210,12 @@ export async function getCaptures(projectId: string): Promise<Capture[]> {
     const request = index.getAll(projectId);
     request.onsuccess = () => {
       const captures = request.result as Capture[];
-      captures.sort((a, b) => b.createdAt - a.createdAt);
+      captures.sort((a, b) => {
+        const aOrder = a.sortOrder ?? 0;
+        const bOrder = b.sortOrder ?? 0;
+        if (aOrder !== bOrder) return aOrder - bOrder;
+        return b.createdAt - a.createdAt;
+      });
       resolve(captures);
     };
     request.onerror = () => reject(request.error);
@@ -259,6 +265,80 @@ export async function moveCapture(captureId: string, fromProjectId: string, toPr
   await Promise.all([
     updateProject(fromProjectId, { captureCount: fromCaptures.length }),
     updateProject(toProjectId, { captureCount: toCaptures.length }),
+  ]);
+}
+
+export async function getAllCaptures(): Promise<Capture[]> {
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction('captures', 'readonly');
+    const request = tx.objectStore('captures').getAll();
+    request.onsuccess = () => {
+      const captures = request.result as Capture[];
+      captures.sort((a, b) => b.createdAt - a.createdAt);
+      resolve(captures);
+    };
+    request.onerror = () => reject(request.error);
+  });
+}
+
+export async function getProjectMap(): Promise<Record<string, Project>> {
+  const projects = await getProjects();
+  const map: Record<string, Project> = {};
+  for (const p of projects) {
+    map[p.id] = p;
+  }
+  return map;
+}
+
+export async function copyCapture(captureId: string, toProjectId: string): Promise<Capture> {
+  const original = await getCapture(captureId);
+  if (!original) throw new Error('Capture not found');
+  return addCapture(
+    toProjectId,
+    original.url,
+    original.title,
+    original.body,
+    original.author,
+    original.images,
+    original.metadata,
+    original.note,
+    original.tags,
+  );
+}
+
+export async function reorderCapture(projectId: string, captureId: string, direction: 'up' | 'down'): Promise<void> {
+  const captures = await getCaptures(projectId);
+  if (captures.length < 2) return;
+
+  // Assign sequential sortOrder values if not already set
+  const needsInit = captures.some(c => c.sortOrder == null);
+  if (needsInit) {
+    const db = await openDB();
+    await new Promise<void>((resolve, reject) => {
+      const tx = db.transaction('captures', 'readwrite');
+      const store = tx.objectStore('captures');
+      captures.forEach((c, i) => {
+        store.put({ ...c, sortOrder: (i + 1) * 10 });
+      });
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    });
+    // Re-fetch with updated sortOrder values
+    const updated = await getCaptures(projectId);
+    captures.splice(0, captures.length, ...updated);
+  }
+
+  const idx = captures.findIndex(c => c.id === captureId);
+  if (idx === -1) return;
+  const swapIdx = direction === 'up' ? idx - 1 : idx + 1;
+  if (swapIdx < 0 || swapIdx >= captures.length) return;
+
+  // Swap sortOrder values
+  const tempOrder = captures[idx].sortOrder!;
+  await Promise.all([
+    updateCapture(captures[idx].id, { sortOrder: captures[swapIdx].sortOrder! }),
+    updateCapture(captures[swapIdx].id, { sortOrder: tempOrder }),
   ]);
 }
 

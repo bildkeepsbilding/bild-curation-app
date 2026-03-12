@@ -12,6 +12,8 @@ import {
   updateCapture,
   updateProject,
   moveCapture,
+  copyCapture,
+  reorderCapture,
   INBOX_PROJECT_ID,
   type Project,
   type Capture,
@@ -64,6 +66,8 @@ export default function ProjectPage() {
   const [editingProjectName, setEditingProjectName] = useState(false);
   const [projectNameText, setProjectNameText] = useState('');
   const [confirmDeleteProject, setConfirmDeleteProject] = useState(false);
+  const [copyTarget, setCopyTarget] = useState<Capture | null>(null);
+  const [copyProjects, setCopyProjects] = useState<Project[]>([]);
   const urlInputRef = useRef<HTMLInputElement>(null);
   const projectNameInputRef = useRef<HTMLInputElement>(null);
   const noteInputRef = useRef<HTMLTextAreaElement>(null);
@@ -250,6 +254,37 @@ export default function ProjectPage() {
       setAllProjects(projects.filter(p => p.id !== projectId));
     } catch (e) {
       console.error('Load projects failed:', e);
+    }
+  }
+
+  async function handleOpenCopyModal(capture: Capture) {
+    setMenuOpen(null);
+    setCopyTarget(capture);
+    try {
+      const projects = await getProjects();
+      setCopyProjects(projects.filter(p => p.id !== projectId));
+    } catch (e) {
+      console.error('Load projects failed:', e);
+    }
+  }
+
+  async function handleCopyCapture(toProjectId: string) {
+    if (!copyTarget) return;
+    try {
+      await copyCapture(copyTarget.id, toProjectId);
+      setCopyTarget(null);
+      await loadData();
+    } catch (e) {
+      console.error('Copy failed:', e);
+    }
+  }
+
+  async function handleReorder(captureId: string, direction: 'up' | 'down') {
+    try {
+      await reorderCapture(projectId, captureId, direction);
+      await loadData();
+    } catch (e) {
+      console.error('Reorder failed:', e);
     }
   }
 
@@ -713,9 +748,30 @@ export default function ProjectPage() {
               const bodyPreview = cleanBody(capture.body.split('\n---')[0]);
               const isEditing = editingCapture === capture.id;
               return (
-                <div key={capture.id} className="capture-card relative w-full text-left rounded-2xl overflow-hidden transition-all" style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border-subtle)' }}>
-                  {/* Three-dot menu trigger */}
-                  <div className="absolute top-2 right-2 z-10" ref={menuOpen === capture.id ? menuRef : undefined}>
+                <div key={capture.id} className="capture-card group relative w-full text-left rounded-2xl overflow-hidden transition-all" style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border-subtle)' }}>
+                  {/* Reorder arrows + Three-dot menu */}
+                  <div className="absolute top-2 right-2 z-10 flex items-center gap-0.5" ref={menuOpen === capture.id ? menuRef : undefined}>
+                    {/* Reorder arrows — visible on hover */}
+                    {filteredCaptures.indexOf(capture) > 0 && (
+                      <button
+                        onClick={(e) => { e.stopPropagation(); handleReorder(capture.id, 'up'); }}
+                        className="w-6 h-6 flex items-center justify-center rounded-full transition-all opacity-0 group-hover:opacity-60 hover:!opacity-100"
+                        style={{ background: 'var(--bg-elevated)cc', backdropFilter: 'blur(8px)' }}
+                        title="Move up"
+                      >
+                        <svg width="12" height="12" viewBox="0 0 16 16" fill="none"><path d="M8 12V4M4 8l4-4 4 4" stroke="var(--text-tertiary)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" /></svg>
+                      </button>
+                    )}
+                    {filteredCaptures.indexOf(capture) < filteredCaptures.length - 1 && (
+                      <button
+                        onClick={(e) => { e.stopPropagation(); handleReorder(capture.id, 'down'); }}
+                        className="w-6 h-6 flex items-center justify-center rounded-full transition-all opacity-0 group-hover:opacity-60 hover:!opacity-100"
+                        style={{ background: 'var(--bg-elevated)cc', backdropFilter: 'blur(8px)' }}
+                        title="Move down"
+                      >
+                        <svg width="12" height="12" viewBox="0 0 16 16" fill="none"><path d="M8 4v8M4 8l4 4 4-4" stroke="var(--text-tertiary)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" /></svg>
+                      </button>
+                    )}
                     <button
                       onClick={(e) => { e.stopPropagation(); setMenuOpen(menuOpen === capture.id ? null : capture.id); }}
                       className="w-7 h-7 flex items-center justify-center rounded-full transition-colors"
@@ -737,6 +793,10 @@ export default function ProjectPage() {
                         <button onClick={(e) => { e.stopPropagation(); handleOpenMoveModal(capture); }} className="w-full text-left px-3 py-2 text-xs flex items-center gap-2 hover:bg-white/5 transition-colors" style={{ color: 'var(--text-secondary)' }}>
                           <svg width="13" height="13" viewBox="0 0 24 24" fill="none"><path d="M3 7h4l3-3h4l3 3h4M5 7v10a2 2 0 002 2h10a2 2 0 002-2V7" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" /></svg>
                           Move to project
+                        </button>
+                        <button onClick={(e) => { e.stopPropagation(); handleOpenCopyModal(capture); }} className="w-full text-left px-3 py-2 text-xs flex items-center gap-2 hover:bg-white/5 transition-colors" style={{ color: 'var(--text-secondary)' }}>
+                          <svg width="13" height="13" viewBox="0 0 24 24" fill="none"><rect x="8" y="8" width="12" height="12" rx="2" stroke="currentColor" strokeWidth="1.5" /><path d="M16 8V6a2 2 0 00-2-2H6a2 2 0 00-2 2v8a2 2 0 002 2h2" stroke="currentColor" strokeWidth="1.5" /></svg>
+                          Copy to project
                         </button>
                         <div className="my-1" style={{ borderTop: '1px solid var(--border-subtle)' }} />
                         <button onClick={(e) => { e.stopPropagation(); setMenuOpen(null); setConfirmDelete(capture); }} className="w-full text-left px-3 py-2 text-xs flex items-center gap-2 hover:bg-white/5 transition-colors" style={{ color: 'var(--danger)' }}>
@@ -865,6 +925,33 @@ export default function ProjectPage() {
             </div>
             <div className="px-5 py-3" style={{ borderTop: '1px solid var(--border-subtle)' }}>
               <button onClick={() => setMoveTarget(null)} className="w-full py-2 rounded-xl text-sm" style={{ color: 'var(--text-secondary)', border: '1px solid var(--border)' }}>Cancel</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Copy to Project Modal ── */}
+      {copyTarget && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center" style={{ background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(4px)' }}>
+          <div className="w-full max-w-sm mx-4 rounded-2xl overflow-hidden" style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border)' }}>
+            <div className="px-5 py-4" style={{ borderBottom: '1px solid var(--border-subtle)' }}>
+              <h3 className="text-base font-semibold" style={{ color: 'var(--text-primary)' }}>Copy to project</h3>
+              <p className="text-xs mt-1" style={{ color: 'var(--text-tertiary)' }}>Copy &ldquo;{truncate(copyTarget.title, 40)}&rdquo; — original stays in this project</p>
+            </div>
+            <div className="max-h-64 overflow-auto">
+              {copyProjects.length === 0 ? (
+                <p className="px-5 py-6 text-sm text-center" style={{ color: 'var(--text-tertiary)' }}>No other projects</p>
+              ) : (
+                copyProjects.map(p => (
+                  <button key={p.id} onClick={() => handleCopyCapture(p.id)} className="w-full text-left px-5 py-3 flex items-center justify-between hover:bg-white/5 transition-colors" style={{ borderBottom: '1px solid var(--border-subtle)' }}>
+                    <span className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>{p.name}</span>
+                    <span className="text-xs" style={{ color: 'var(--text-tertiary)' }}>{p.captureCount} capture{p.captureCount !== 1 ? 's' : ''}</span>
+                  </button>
+                ))
+              )}
+            </div>
+            <div className="px-5 py-3" style={{ borderTop: '1px solid var(--border-subtle)' }}>
+              <button onClick={() => setCopyTarget(null)} className="w-full py-2 rounded-xl text-sm" style={{ color: 'var(--text-secondary)', border: '1px solid var(--border)' }}>Cancel</button>
             </div>
           </div>
         </div>

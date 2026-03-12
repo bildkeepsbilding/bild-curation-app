@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
-import { getProjects, getCaptures, createProject, deleteProject, ensureInbox, addCapture, INBOX_PROJECT_ID, type Project, type Capture } from '@/lib/db';
+import { getProjects, getCaptures, getAllCaptures, createProject, deleteProject, ensureInbox, addCapture, INBOX_PROJECT_ID, type Project, type Capture } from '@/lib/db';
 
 interface ProjectWithCover extends Project {
   coverImage?: string;
@@ -22,6 +22,7 @@ export default function Home() {
   const [urlInput, setUrlInput] = useState('');
   const [fetching, setFetching] = useState(false);
   const [fetchError, setFetchError] = useState('');
+  const [totalCaptures, setTotalCaptures] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
   const urlInputRef = useRef<HTMLInputElement>(null);
 
@@ -63,6 +64,12 @@ export default function Home() {
 
       setInboxProject(inbox);
       setProjects(regular);
+
+      // Total capture count across all projects
+      try {
+        const allCaptures = await getAllCaptures();
+        setTotalCaptures(allCaptures.length);
+      } catch { setTotalCaptures(0); }
     } catch (e) {
       console.error('Failed to load projects:', e);
     } finally {
@@ -320,6 +327,29 @@ export default function Home() {
                     <path d="M6 4l4 4-4 4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
                   </svg>
                 </div>
+              </div>
+            )}
+
+            {/* View All Captures link */}
+            {totalCaptures > 0 && (
+              <div
+                className="mb-6 flex items-center justify-between px-1 cursor-pointer group"
+                onClick={() => router.push('/all')}
+              >
+                <div className="flex items-center gap-2">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" style={{ color: 'var(--text-tertiary)' }}>
+                    <path d="M4 6h16M4 12h16M4 18h16" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+                  </svg>
+                  <span className="text-sm font-medium group-hover:underline" style={{ color: 'var(--text-secondary)' }}>
+                    View all captures
+                  </span>
+                  <span className="text-xs px-1.5 py-0.5 rounded-full" style={{ background: 'var(--bg-hover)', color: 'var(--text-tertiary)' }}>
+                    {totalCaptures}
+                  </span>
+                </div>
+                <svg width="14" height="14" viewBox="0 0 16 16" fill="none" className="transition-transform group-hover:translate-x-0.5" style={{ color: 'var(--text-tertiary)' }}>
+                  <path d="M6 4l4 4-4 4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
               </div>
             )}
 
