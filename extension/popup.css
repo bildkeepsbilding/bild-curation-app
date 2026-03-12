@@ -178,6 +178,7 @@ textarea {
   resize: none;
   min-height: 60px;
   line-height: 1.5;
+  border-color: rgba(232, 255, 71, 0.3);
 }
 
 textarea::placeholder {

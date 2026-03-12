@@ -73,7 +73,7 @@ export default function Home() {
 
   async function loadProjects() {
     try {
-      // Ensure Inbox exists, then fetch projects and all captures in parallel
+      // Ensure Unsorted exists, then fetch projects and all captures in parallel
       await ensureInbox();
 
       const [p, allCaptures] = await Promise.all([
@@ -99,7 +99,7 @@ export default function Home() {
         return { ...project, coverImage, latestTitle, platforms };
       });
 
-      // Separate Inbox from regular projects
+      // Separate Unsorted from regular projects
       const inbox = enriched.find(p => p.is_inbox) || null;
       const regular = enriched.filter(p => !p.is_inbox);
 
@@ -192,7 +192,7 @@ export default function Home() {
       setUrlInput('');
       setSearchCache(null);
       await loadProjects();
-      showToast('Saved to Inbox');
+      showToast('Saved to Unsorted');
     } catch (e) {
       setFetchError(e instanceof Error ? e.message : 'Failed to capture');
     } finally {
@@ -359,7 +359,7 @@ export default function Home() {
                 <div className="skeleton h-12 w-28 rounded-xl" />
               </div>
             </div>
-            {/* Skeleton: Inbox card */}
+            {/* Skeleton: Unsorted card */}
             <div className="rounded-2xl p-4 mb-6" style={{ border: '1px solid var(--border-subtle)' }}>
               <div className="flex items-center gap-3">
                 <div className="skeleton w-10 h-10 rounded-xl" />
@@ -383,7 +383,7 @@ export default function Home() {
             {/* Quick Capture to Inbox */}
             <div className="mb-6">
               <label className="text-xs font-semibold tracking-wide uppercase mb-2 block" style={{ color: 'var(--text-tertiary)' }}>
-                Quick capture to Inbox
+                Quick capture to Unsorted
               </label>
               <div className="flex gap-2">
                 <input
@@ -447,10 +447,10 @@ export default function Home() {
               )}
             </div>
 
-            {/* Inbox Card */}
+            {/* Unsorted Card */}
             {inboxProject && (
               <div
-                className="inbox-card rounded-2xl p-4 cursor-pointer mb-6"
+                className="unsorted-card rounded-2xl p-4 cursor-pointer mb-6"
                 onClick={() => inboxProject && router.push(`/project/${inboxProject.id}`)}
               >
                 <div className="flex items-center gap-3">
@@ -462,7 +462,7 @@ export default function Home() {
                   </div>
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2">
-                      <h3 className="text-base font-semibold" style={{ color: 'var(--text-primary)' }}>Inbox</h3>
+                      <h3 className="text-base font-semibold" style={{ color: 'var(--text-primary)' }}>Unsorted</h3>
                       <span className="text-xs px-2 py-0.5 rounded-full font-medium" style={{ background: 'var(--accent-dim)', color: 'var(--accent)' }}>
                         {inboxProject.captureCount || 0}
                       </span>

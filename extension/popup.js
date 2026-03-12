@@ -221,7 +221,9 @@ async function init() {
       currentTabUrl = tab.url || '';
       currentTabTitle = tab.title || '';
       pageTitle.textContent = currentTabTitle || 'Untitled page';
-      pageUrl.textContent = currentTabUrl;
+      pageUrl.textContent = currentTabUrl.length > 50
+        ? currentTabUrl.slice(0, 50) + '…'
+        : currentTabUrl;
     }
   } catch (e) {
     console.warn('Failed to get tab:', e);
@@ -305,7 +307,7 @@ async function onAuthenticated() {
       const opt = document.createElement('option');
       opt.value = p.id;
       opt.textContent = p.is_inbox
-        ? `📥 Inbox (${count})`
+        ? `📂 Unsorted (${count})`
         : `${p.name} (${count})`;
       projectSelect.appendChild(opt);
     }

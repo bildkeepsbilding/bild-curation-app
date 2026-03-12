@@ -126,7 +126,7 @@ export async function getProject(id: string): Promise<Project | null> {
 export async function updateProject(id: string, updates: Partial<Project>): Promise<void> {
   const supabase = createClient();
 
-  // Check if it's the inbox — prevent renaming
+  // Check if it's the Unsorted project — prevent renaming
   const project = await getProject(id);
   if (!project) return;
 
@@ -149,7 +149,7 @@ export async function updateProject(id: string, updates: Partial<Project>): Prom
 export async function deleteProject(id: string): Promise<void> {
   const supabase = createClient();
 
-  // Don't delete inbox
+  // Don't delete Unsorted
   const project = await getProject(id);
   if (!project || project.is_inbox) return;
 
@@ -166,7 +166,7 @@ export async function ensureInbox(): Promise<Project> {
   const supabase = createClient();
   const userId = await getUserId();
 
-  // Check for existing inbox
+  // Check for existing Unsorted project
   const { data: existing } = await supabase
     .from('projects')
     .select('*, captures(count)')
@@ -178,10 +178,10 @@ export async function ensureInbox(): Promise<Project> {
     return rowToProject(existing, count);
   }
 
-  // Create inbox
+  // Create Unsorted project
   const { data, error } = await supabase
     .from('projects')
-    .insert({ user_id: userId, name: 'Inbox', is_inbox: true })
+    .insert({ user_id: userId, name: 'Unsorted', is_inbox: true })
     .select('*, captures(count)')
     .single();
 
