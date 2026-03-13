@@ -4,6 +4,7 @@ import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { getProjects, getCaptures, getAllCaptures, getProjectMap, createProject, deleteProject, ensureInbox, addCapture, findCaptureByUrl, getUniqueContentTag, decodeEntities, type Project, type Capture } from '@/lib/db';
 import UserMenu from '@/components/UserMenu';
+import PwaInstallPrompt from '@/components/PwaInstallPrompt';
 
 interface ProjectWithCover extends Project {
   coverImage?: string;
@@ -817,6 +818,8 @@ export default function Home() {
           </div>
         </div>
       )}
+
+      <PwaInstallPrompt />
     </main>
   );
 }
