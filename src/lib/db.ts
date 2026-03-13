@@ -7,6 +7,7 @@ export interface Project {
   name: string;
   brief: string;
   is_inbox: boolean;
+  share: boolean;
   createdAt: number;
   updatedAt: number;
   captureCount: number;
@@ -38,6 +39,7 @@ function rowToProject(row: any, captureCount: number = 0): Project {
     name: row.name,
     brief: row.brief || '',
     is_inbox: row.is_inbox || false,
+    share: row.share || false,
     createdAt: new Date(row.created_at).getTime(),
     updatedAt: new Date(row.updated_at).getTime(),
     captureCount,
@@ -135,6 +137,7 @@ export async function updateProject(id: string, updates: Partial<Project>): Prom
   const dbUpdates: Record<string, any> = {};
   if (updates.name !== undefined && !project.is_inbox) dbUpdates.name = updates.name;
   if (updates.brief !== undefined) dbUpdates.brief = updates.brief;
+  if (updates.share !== undefined) dbUpdates.share = updates.share;
 
   if (Object.keys(dbUpdates).length === 0) return;
 
@@ -586,6 +589,41 @@ export async function exportProjectAsMarkdown(projectId: string, filterPlatform?
   }
 
   return md;
+}
+
+// --- Public (no-auth) data fetching for shared projects ---
+
+export async function getSharedProject(id: string): Promise<Project | null> {
+  const supabase = createClient();
+
+  const { data, error } = await supabase
+    .from('projects')
+    .select('*, captures(count)')
+    .eq('id', id)
+    .eq('share', true)
+    .single();
+
+  if (error) {
+    if (error.code === 'PGRST116') return null;
+    throw error;
+  }
+
+  const count = data.captures?.[0]?.count ?? 0;
+  return rowToProject(data, count);
+}
+
+export async function getSharedProjectCaptures(projectId: string): Promise<Capture[]> {
+  const supabase = createClient();
+
+  const { data, error } = await supabase
+    .from('captures')
+    .select('*')
+    .eq('project_id', projectId)
+    .order('sort_order', { ascending: true })
+    .order('created_at', { ascending: false });
+
+  if (error) throw error;
+  return (data || []).map(rowToCapture);
 }
 
 export { detectPlatform };
