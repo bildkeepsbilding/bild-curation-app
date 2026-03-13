@@ -90,6 +90,8 @@ export default function ProjectPage() {
   const [showExportConfirm, setShowExportConfirm] = useState(false);
   const [optimisticUrl, setOptimisticUrl] = useState<string | null>(null);
   const [optimisticError, setOptimisticError] = useState<string | null>(null);
+  const [sharing, setSharing] = useState(false);
+  const [shareCopied, setShareCopied] = useState(false);
   const urlInputRef = useRef<HTMLInputElement>(null);
 
   function showToast(msg: string) {
@@ -270,6 +272,35 @@ export default function ProjectPage() {
     } catch (e) {
       console.error('Rename failed:', e);
     }
+  }
+
+  async function handleToggleShare() {
+    if (!project) return;
+    const newValue = !project.share;
+    setProject({ ...project, share: newValue });
+    try {
+      await updateProject(projectId, { share: newValue });
+      if (newValue) {
+        const url = `${window.location.origin}/p/${projectId}`;
+        await navigator.clipboard.writeText(url);
+        setShareCopied(true);
+        showToast('Link copied to clipboard');
+        setTimeout(() => setShareCopied(false), 2000);
+      } else {
+        showToast('Sharing disabled');
+      }
+    } catch (e) {
+      console.error('Toggle share failed:', e);
+      setProject({ ...project, share: !newValue });
+    }
+  }
+
+  function handleCopyShareLink() {
+    const url = `${window.location.origin}/p/${projectId}`;
+    navigator.clipboard.writeText(url);
+    setShareCopied(true);
+    showToast('Link copied');
+    setTimeout(() => setShareCopied(false), 2000);
   }
 
   async function handleDeleteProject() {
@@ -756,7 +787,39 @@ export default function ProjectPage() {
             </p>
           </div>
           {!isInbox && captures.length > 0 && (
-            <div className="flex-shrink-0 ml-3 hidden sm:block">
+            <div className="flex-shrink-0 ml-3 hidden sm:flex items-center gap-2">
+              {/* Share toggle */}
+              <div className="flex items-center gap-2">
+                {project.share && (
+                  <button
+                    onClick={handleCopyShareLink}
+                    className="flex items-center gap-1 px-3 py-2 rounded-full text-xs font-medium transition-all"
+                    style={{ background: 'var(--bg-elevated)', color: 'var(--text-secondary)', border: '1px solid var(--border)' }}
+                    title="Copy share link"
+                  >
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none"><rect x="8" y="8" width="12" height="12" rx="2" stroke="currentColor" strokeWidth="1.5" /><path d="M16 8V6a2 2 0 00-2-2H6a2 2 0 00-2 2v8a2 2 0 002 2h2" stroke="currentColor" strokeWidth="1.5" /></svg>
+                    {shareCopied ? 'Copied!' : 'Copy link'}
+                  </button>
+                )}
+                <button
+                  onClick={handleToggleShare}
+                  className="flex items-center gap-1.5 px-3 py-2 rounded-full text-xs font-medium transition-all"
+                  style={{
+                    background: project.share ? 'var(--accent)20' : 'var(--bg-elevated)',
+                    color: project.share ? 'var(--accent)' : 'var(--text-tertiary)',
+                    border: `1px solid ${project.share ? 'var(--accent)40' : 'var(--border)'}`,
+                  }}
+                  title={project.share ? 'Sharing on — click to disable' : 'Share this project publicly'}
+                >
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none">
+                    <circle cx="18" cy="5" r="3" stroke="currentColor" strokeWidth="1.5" />
+                    <circle cx="6" cy="12" r="3" stroke="currentColor" strokeWidth="1.5" />
+                    <circle cx="18" cy="19" r="3" stroke="currentColor" strokeWidth="1.5" />
+                    <path d="M8.59 13.51l6.83 3.98M15.41 6.51l-6.82 3.98" stroke="currentColor" strokeWidth="1.5" />
+                  </svg>
+                  {project.share ? 'Shared' : 'Share'}
+                </button>
+              </div>
               <button onClick={() => setShowExportConfirm(true)} disabled={exporting} className="flex items-center gap-1.5 px-4 py-2 rounded-full text-xs font-semibold transition-all" style={{ background: exporting ? 'var(--bg-elevated)' : 'var(--accent)', color: exporting ? 'var(--text-secondary)' : 'var(--bg)', border: exporting ? '1px solid var(--border)' : '1px solid var(--accent)', opacity: exporting ? 0.8 : 1 }}>
                 {exporting ? (
                   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" className="animate-spin"><circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="2" opacity="0.25"/><path d="M12 2a10 10 0 019.75 7.75" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/></svg>
