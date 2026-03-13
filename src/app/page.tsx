@@ -263,14 +263,25 @@ export default function Home() {
     return n.toString();
   }
 
+  // Generate a unique gradient from a project name
+  function nameToGradient(name: string): string {
+    let hash = 0;
+    for (let i = 0; i < name.length; i++) {
+      hash = name.charCodeAt(i) + ((hash << 5) - hash);
+    }
+    const h1 = Math.abs(hash % 360);
+    const h2 = (h1 + 40 + Math.abs((hash >> 8) % 30)) % 360;
+    return `linear-gradient(135deg, hsl(${h1}, 45%, 18%) 0%, hsl(${h2}, 35%, 12%) 100%)`;
+  }
+
   const regularProjectCount = projects.length;
 
   return (
     <main className="min-h-dvh safe-top safe-bottom">
-      <header className="px-5 pt-8 pb-6 flex items-end justify-between max-w-5xl mx-auto">
+      <header className="px-5 pt-10 pb-8 flex items-end justify-between max-w-5xl mx-auto">
         <div>
           <h1 className="text-3xl font-bold tracking-tight" style={{ color: 'var(--text-primary)' }}>
-            Bild
+            Sift
           </h1>
           <p className="text-sm mt-1" style={{ color: 'var(--text-tertiary)' }}>
             {regularProjectCount} project{regularProjectCount !== 1 ? 's' : ''}
@@ -381,10 +392,10 @@ export default function Home() {
           </div>
         ) : (
           <>
-            {/* Quick Capture to Inbox */}
-            <div className="mb-6">
+            {/* Quick Capture */}
+            <div className="mb-8">
               <label className="text-xs font-semibold tracking-wide uppercase mb-2 block" style={{ color: 'var(--text-tertiary)' }}>
-                Quick capture to Unsorted
+                Quick capture
               </label>
               <div className="flex gap-2">
                 <input
@@ -448,14 +459,14 @@ export default function Home() {
               )}
             </div>
 
-            {/* Unsorted Card */}
+            {/* Unsorted Card — the living inbox */}
             {inboxProject && (
               <div
-                className="unsorted-card rounded-2xl p-4 cursor-pointer mb-6"
+                className="unsorted-card rounded-2xl p-5 cursor-pointer mb-8"
                 onClick={() => inboxProject && router.push(`/project/${inboxProject.id}`)}
               >
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0" style={{ background: 'var(--accent-dim)' }}>
+                <div className="flex items-center gap-3.5">
+                  <div className="w-11 h-11 rounded-xl flex items-center justify-center flex-shrink-0" style={{ background: 'var(--accent-dim)', boxShadow: '0 0 16px rgba(232, 255, 71, 0.08)' }}>
                     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" style={{ color: 'var(--accent)' }}>
                       <path d="M3 8l3.89 5.42a2 2 0 001.64.86h6.94a2 2 0 001.64-.86L21 8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
                       <rect x="3" y="4" width="18" height="16" rx="2" stroke="currentColor" strokeWidth="1.5" />
@@ -470,11 +481,11 @@ export default function Home() {
                     </div>
                     {inboxProject.captureCount > 0 && inboxProject.latestTitle ? (
                       <p className="text-xs mt-0.5 truncate" style={{ color: 'var(--text-tertiary)' }}>
-                        Latest: {inboxProject.latestTitle}
+                        Latest: {decodeEntities(inboxProject.latestTitle)}
                       </p>
                     ) : (
                       <p className="text-xs mt-0.5" style={{ color: 'var(--text-tertiary)' }}>
-                        Paste a URL above to start capturing
+                        Capture a thought to get started
                       </p>
                     )}
                   </div>
@@ -489,13 +500,13 @@ export default function Home() {
             {totalCaptures === 0 && !loading && (
               <div className="py-8 text-center">
                 <h2 className="text-2xl sm:text-3xl font-bold tracking-tight mb-2" style={{ color: 'var(--text-primary)' }}>
-                  Welcome to Bild
+                  Welcome to Sift
                 </h2>
                 <p className="text-base font-medium mb-3" style={{ color: 'var(--accent)' }}>
                   Curate the internet for Claude.
                 </p>
                 <p className="text-sm max-w-md mx-auto mb-8" style={{ color: 'var(--text-secondary)', lineHeight: 1.7 }}>
-                  Paste any URL — Reddit posts, X threads, GitHub repos, articles — and Bild extracts the content, images, and metadata. Organize into projects, add your context, and package everything as a PDF ready for Claude&apos;s project files.
+                  Paste any URL — Reddit posts, X threads, GitHub repos, articles — and Sift extracts the content, images, and metadata. Organize into projects, add your context, and package everything as a PDF ready for Claude&apos;s project files.
                 </p>
 
                 <div className="text-left max-w-md mx-auto">
@@ -679,7 +690,7 @@ export default function Home() {
                 {/* View All Captures link */}
                 {totalCaptures > 0 && (
                   <div
-                    className="mb-6 flex items-center justify-between px-1 cursor-pointer group"
+                    className="mb-8 flex items-center justify-between px-1 cursor-pointer group"
                     onClick={() => router.push('/all')}
                   >
                     <div className="flex items-center gap-2">
@@ -722,8 +733,8 @@ export default function Home() {
                         style={{ border: '1px solid var(--border-subtle)' }}
                         onClick={() => router.push(`/project/${project.id}`)}
                       >
-                        {/* Hero image background */}
-                        <div className="relative h-52 overflow-hidden" style={{ background: 'var(--bg-hover)' }}>
+                        {/* Hero image background or name-hashed gradient */}
+                        <div className="relative h-52 overflow-hidden" style={{ background: nameToGradient(project.name) }}>
                           {project.coverImage ? (
                             <img
                               src={project.coverImage}
@@ -733,14 +744,10 @@ export default function Home() {
                               onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
                             />
                           ) : (
-                            <div className="w-full h-full flex items-center justify-center" style={{
-                              background: 'linear-gradient(135deg, var(--bg-hover) 0%, var(--bg-elevated) 100%)'
-                            }}>
-                              <svg width="48" height="48" viewBox="0 0 24 24" fill="none" style={{ color: 'var(--border)' }}>
-                                <rect x="3" y="3" width="18" height="18" rx="3" stroke="currentColor" strokeWidth="1.5" />
-                                <path d="M3 16l5-5 4 4 3-3 6 6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-                                <circle cx="8.5" cy="8.5" r="1.5" stroke="currentColor" strokeWidth="1.5" />
-                              </svg>
+                            <div className="w-full h-full flex items-center justify-center">
+                              <span className="text-4xl font-bold" style={{ color: 'rgba(255,255,255,0.08)' }}>
+                                {project.name.charAt(0).toUpperCase()}
+                              </span>
                             </div>
                           )}
 
@@ -787,7 +794,7 @@ export default function Home() {
                             </div>
                             {project.latestTitle && (
                               <p className="text-xs mt-1.5 truncate" style={{ color: 'rgba(255,255,255,0.45)' }}>
-                                {project.latestTitle}
+                                {decodeEntities(project.latestTitle)}
                               </p>
                             )}
                             {!project.latestTitle && project.captureCount === 0 && (
