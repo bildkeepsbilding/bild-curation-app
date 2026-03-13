@@ -620,7 +620,7 @@ export default function ProjectPage() {
             )}
 
             {/* Reading column */}
-            <div className="mx-auto px-6 sm:px-8 py-6" style={{ maxWidth: '720px' }}>
+            <div className="mx-auto px-8 py-6" style={{ maxWidth: '720px' }}>
               {/* Title */}
               <h1 className="font-bold mb-4" style={{ color: 'var(--text-primary)', fontSize: '28px', lineHeight: 1.2, letterSpacing: '-0.01em' }}>
                 {decodeEntities(viewing.title)}
