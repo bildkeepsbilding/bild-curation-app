@@ -141,52 +141,42 @@ body {
   }
 }
 
-/* Project card grid for home page */
+/* Project card grid for home page — kept for compatibility */
 .project-grid {
   display: grid;
   grid-template-columns: 1fr;
-  gap: 16px;
+  gap: 8px;
 }
 
-@media (min-width: 640px) {
-  .project-grid {
-    grid-template-columns: repeat(2, 1fr);
-    gap: 20px;
-  }
+/* Unsorted tray — system element above project list */
+.unsorted-tray {
+  transition: border-color 0.2s ease;
 }
 
-@media (min-width: 1024px) {
-  .project-grid {
-    grid-template-columns: repeat(3, 1fr);
-  }
+.unsorted-tray:hover {
+  border-color: var(--border) !important;
 }
 
-/* Unsorted card — the living inbox */
-.unsorted-card {
-  border: 1px solid rgba(232, 255, 71, 0.12);
-  background: linear-gradient(135deg, var(--bg-elevated) 0%, rgba(232, 255, 71, 0.04) 100%);
-  box-shadow: 0 0 24px rgba(232, 255, 71, 0.03);
-  transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease;
+/* Project folder — text-forward card */
+.project-folder {
+  transition: background 0.15s ease, border-color 0.15s ease;
 }
 
 @media (min-width: 768px) {
-  .unsorted-card:hover {
-    transform: translateY(-2px);
-    border-color: rgba(232, 255, 71, 0.2);
-    box-shadow: 0 8px 32px rgba(232, 255, 71, 0.1);
+  .project-folder:hover {
+    background: var(--bg-hover) !important;
+    border-color: var(--border) !important;
   }
 }
 
-/* Project card with hero image */
-.project-card-hero {
-  min-height: 200px;
-  transition: transform 0.2s ease, box-shadow 0.2s ease;
+/* Search result card */
+.search-result-card {
+  transition: background 0.15s ease;
 }
 
 @media (min-width: 768px) {
-  .project-card-hero:hover {
-    transform: translateY(-2px);
-    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
+  .search-result-card:hover {
+    background: var(--bg-hover) !important;
   }
 }
 
