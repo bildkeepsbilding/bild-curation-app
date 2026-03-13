@@ -84,7 +84,7 @@ export default function UserMenu() {
 
       {open && (
         <div
-          className="absolute right-0 top-full mt-1 w-48 rounded-xl py-1 z-50"
+          className="absolute right-0 top-full mt-1 w-48 rounded-xl py-1 z-[60]"
           style={{
             background: '#1a1a1d',
             border: '1px solid #2a2a2d',
