@@ -467,7 +467,7 @@ export default function ProjectPage() {
           parts.push(<strong key={partKey++} style={{ color: 'var(--text-primary)', fontWeight: 600 }}>{match[2]}</strong>);
         } else if (match[3]) {
           // `code`
-          parts.push(<code key={partKey++} className="font-mono text-[0.9em] px-1.5 py-0.5 rounded" style={{ background: 'var(--bg)', color: 'var(--accent)' }}>{match[4]}</code>);
+          parts.push(<code key={partKey++} className="font-mono text-[0.9em] px-1.5 py-0.5 rounded" style={{ background: 'var(--bg)', border: '1px solid var(--border-subtle)', color: 'var(--text-primary)' }}>{match[4]}</code>);
         } else if (match[5]) {
           // [link](url)
           parts.push(<a key={partKey++} href={match[7]} target="_blank" rel="noopener noreferrer" style={{ color: 'var(--accent)', textDecoration: 'underline', textUnderlineOffset: '2px' }}>{match[6]}</a>);
@@ -498,7 +498,7 @@ export default function ProjectPage() {
     if (ulMatch) return <div key={key} className="flex gap-2 ml-1 mb-1"><span style={{ color: 'var(--text-tertiary)' }}>•</span><span>{renderInline(ulMatch[1])}</span></div>;
 
     // Blockquote
-    if (line.startsWith('> ')) return <blockquote key={key} className="pl-4 my-1" style={{ borderLeft: '3px solid var(--border)', color: 'var(--text-tertiary)', fontStyle: 'italic' }}>{renderInline(line.slice(2))}</blockquote>;
+    if (line.startsWith('> ')) return <blockquote key={key} className="pl-4 my-2" style={{ borderLeft: '2px solid var(--border)', color: 'var(--text-tertiary)', fontStyle: 'italic' }}>{renderInline(line.slice(2))}</blockquote>;
 
     // Empty line = paragraph break
     if (line.trim() === '') return <div key={key} className="h-3" />;
@@ -525,7 +525,7 @@ export default function ProjectPage() {
         }
         i++; // skip closing ```
         elements.push(
-          <pre key={`code-${i}`} className="rounded-xl px-4 py-3 my-4 overflow-x-auto text-sm font-mono" style={{ background: 'var(--bg)', border: '1px solid var(--border-subtle)', color: 'var(--text-secondary)', lineHeight: 1.6 }}>
+          <pre key={`code-${i}`} className="rounded-lg px-4 py-3 my-4 overflow-x-auto text-[13px]" style={{ background: 'var(--bg)', border: '1px solid var(--border-subtle)', color: 'var(--text-secondary)', lineHeight: 1.6, fontFamily: "'JetBrains Mono', 'Fira Code', 'SF Mono', Menlo, monospace" }}>
             {lang && <div className="text-[10px] uppercase tracking-wider mb-2" style={{ color: 'var(--text-tertiary)' }}>{lang}</div>}
             <code>{codeLines.join('\n')}</code>
           </pre>
@@ -590,7 +590,7 @@ export default function ProjectPage() {
     return (
       <div className="min-h-dvh flex flex-col items-center justify-center px-5">
         <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>Project not found</p>
-        <button onClick={() => router.push('/')} className="mt-3 text-sm font-medium" style={{ color: 'var(--accent)' }}>Go back</button>
+        <button onClick={() => router.push('/')} className="mt-3 text-sm font-medium" style={{ color: 'var(--text-secondary)' }}>Go back</button>
       </div>
     );
   }
@@ -622,12 +622,12 @@ export default function ProjectPage() {
             {/* Reading column */}
             <div className="mx-auto px-5 py-6" style={{ maxWidth: '720px' }}>
               {/* Title */}
-              <h1 className="font-bold mb-4" style={{ color: 'var(--text-primary)', fontSize: '24px', lineHeight: 1.3 }}>
+              <h1 className="font-bold mb-4" style={{ color: 'var(--text-primary)', fontSize: '28px', lineHeight: 1.2, letterSpacing: '-0.01em' }}>
                 {decodeEntities(viewing.title)}
               </h1>
 
               {/* Metadata bar */}
-              <div className="flex flex-wrap items-center gap-2 mb-6 pb-5" style={{ borderBottom: '1px solid var(--border-subtle)' }}>
+              <div className="flex flex-wrap items-center gap-2 mb-8 pb-5" style={{ borderBottom: '1px solid var(--border-subtle)' }}>
                 <span className="px-2 py-0.5 rounded-md text-xs font-semibold" style={{ background: PLATFORM_LABELS[viewing.platform]?.color + '20', color: PLATFORM_LABELS[viewing.platform]?.color }}>
                   {PLATFORM_LABELS[viewing.platform]?.label}
                 </span>
@@ -678,9 +678,9 @@ export default function ProjectPage() {
               ) : (
                 <>
                   {viewing.images && viewing.images.length > 1 && (
-                    <div className="mb-6 space-y-3">
+                    <div className="mb-8 grid grid-cols-2 gap-2">
                       {viewing.images.slice(1).map((img, i) => (
-                        <img key={i} src={img} alt={`Image ${i + 2}`} className="w-full rounded-xl" style={{ border: '1px solid var(--border-subtle)' }} loading="lazy" referrerPolicy="no-referrer" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
+                        <img key={i} src={img} alt={`Image ${i + 2}`} className="w-full h-auto rounded-lg object-cover" style={{ border: '1px solid var(--border-subtle)' }} loading="lazy" referrerPolicy="no-referrer" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
                       ))}
                     </div>
                   )}
@@ -710,7 +710,7 @@ export default function ProjectPage() {
                       ref={noteInputRef}
                       value={noteText}
                       onChange={(e) => setNoteText(e.target.value)}
-                      placeholder="Why did you save this? How should Claude use it? What&apos;s the key takeaway?"
+                      placeholder="Why are you saving this? What should Claude focus on?"
                       rows={4}
                       className="w-full px-3 py-2.5 rounded-xl text-sm outline-none resize-none"
                       style={{ background: 'var(--bg)', border: '1px solid var(--border)', color: 'var(--text-primary)', lineHeight: 1.6 }}
@@ -728,7 +728,7 @@ export default function ProjectPage() {
                 ) : (
                   <button onClick={() => { setNoteText(''); setEditingNote(true); }} className="w-full text-left px-4 pb-4">
                     <p className="text-sm" style={{ color: 'var(--text-tertiary)', lineHeight: 1.5 }}>
-                      Why did you save this? How should Claude use it?
+                      Why are you saving this? What should Claude focus on?
                     </p>
                   </button>
                 )}
@@ -808,9 +808,9 @@ export default function ProjectPage() {
                   onClick={handleToggleShare}
                   className="flex items-center gap-1.5 px-3 py-2 rounded-full text-xs font-medium transition-all"
                   style={{
-                    background: project.share ? 'var(--accent)20' : 'var(--bg-elevated)',
-                    color: project.share ? 'var(--accent)' : 'var(--text-tertiary)',
-                    border: `1px solid ${project.share ? 'var(--accent)40' : 'var(--border)'}`,
+                    background: project.share ? 'var(--bg-hover)' : 'var(--bg-elevated)',
+                    color: project.share ? 'var(--text-primary)' : 'var(--text-tertiary)',
+                    border: `1px solid ${project.share ? 'var(--border)' : 'var(--border)'}`,
                   }}
                   title={project.share ? 'Sharing on — click to disable' : 'Share this project publicly'}
                 >
