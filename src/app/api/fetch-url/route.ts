@@ -214,6 +214,69 @@ function extractRedditPostIdFromUrl(url: string): string | null {
   return match ? match[1] : null;
 }
 
+/**
+ * Normalize non-canonical Reddit URLs to canonical /comments/ format.
+ * Handles: /s/ share links, redd.it short links, reddit.app.link, m.reddit.com
+ */
+async function normalizeRedditUrl(url: string): Promise<string> {
+  // m.reddit.com → www.reddit.com (simple replacement, no fetch needed)
+  if (url.includes('m.reddit.com')) {
+    url = url.replace('m.reddit.com', 'www.reddit.com');
+  }
+
+  // If URL already has /comments/, it's canonical — no normalization needed
+  if (/\/comments\/[a-z0-9]+/i.test(url)) {
+    return url;
+  }
+
+  // Detect non-canonical formats that need redirect resolution
+  const needsRedirect =
+    /reddit\.com\/r\/[^/]+\/s\//.test(url) ||  // /s/ share links
+    /redd\.it\/[a-z0-9]+/i.test(url) ||         // redd.it short links
+    /reddit\.app\.link/.test(url);               // app deep links
+
+  if (!needsRedirect) {
+    return url; // Not a known non-canonical format, pass through
+  }
+
+  console.log(`[Reddit] Normalizing non-canonical URL: ${url}`);
+
+  try {
+    // Follow redirects to get the canonical URL
+    const response = await fetch(url, {
+      method: 'GET',
+      redirect: 'follow',
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (compatible; SiftApp/1.0)',
+      },
+    });
+
+    const finalUrl = response.url;
+
+    // Verify we got a canonical /comments/ URL
+    if (/\/comments\/[a-z0-9]+/i.test(finalUrl)) {
+      console.log(`[Reddit] Resolved to: ${finalUrl}`);
+      return finalUrl;
+    }
+
+    // Sometimes the redirect lands on a page that has the canonical URL embedded
+    // Try to extract it from the response if redirect didn't give us /comments/
+    const html = await response.text();
+    const canonicalMatch = html.match(/href="(https?:\/\/(?:www\.)?reddit\.com\/r\/[^"]*\/comments\/[a-z0-9]+[^"]*)"/i);
+    if (canonicalMatch) {
+      console.log(`[Reddit] Extracted canonical URL from page: ${canonicalMatch[1]}`);
+      return canonicalMatch[1];
+    }
+
+    throw new Error(`Redirect resolved to non-canonical URL: ${finalUrl}`);
+  } catch (error) {
+    const msg = error instanceof Error ? error.message : 'unknown error';
+    throw new Error(
+      `Could not resolve this Reddit link (${msg}). Try pasting the full post URL from your browser instead.`
+    );
+  }
+}
+
 async function fetchRedditViaSearch(url: string): Promise<RedditJsonResult> {
   const postId = extractRedditPostIdFromUrl(url);
   if (!postId) throw new Error('Could not extract Reddit post ID from URL');
@@ -627,6 +690,9 @@ async function fetchRedditJsonOld(url: string): Promise<RedditJsonResult> {
 }
 
 async function fetchReddit(url: string) {
+  // ── URL Normalization: resolve /s/ share links, redd.it, reddit.app.link, m.reddit.com ──
+  url = await normalizeRedditUrl(url);
+
   let extractionMethod = '';
   const errors: string[] = [];
 
