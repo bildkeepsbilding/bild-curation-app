@@ -63,11 +63,11 @@ export default function LoginPage() {
         <div className="text-center mb-10">
           <h1 className="text-[32px] font-bold tracking-tight"
             style={{ color: '#f0f0f0' }}>
-            Bild
+            Sift
           </h1>
           <p className="text-[14px] mt-1"
             style={{ color: '#5a5a5e' }}>
-            Capture and organize knowledge from anywhere
+            Curate the internet for your AI
           </p>
         </div>
 

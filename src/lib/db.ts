@@ -1,4 +1,13 @@
 import { createClient } from '@/lib/supabase/client';
+import { createClient as createAnonClient } from '@supabase/supabase-js';
+
+/** Anonymous Supabase client for public data fetching (no cookie/session management). */
+function createPublicClient() {
+  return createAnonClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY!,
+  );
+}
 
 export type Platform = 'reddit' | 'twitter' | 'github' | 'article' | 'other';
 
@@ -594,7 +603,7 @@ export async function exportProjectAsMarkdown(projectId: string, filterPlatform?
 // --- Public (no-auth) data fetching for shared projects ---
 
 export async function getSharedProject(id: string): Promise<Project | null> {
-  const supabase = createClient();
+  const supabase = createPublicClient();
 
   const { data, error } = await supabase
     .from('projects')
@@ -613,7 +622,7 @@ export async function getSharedProject(id: string): Promise<Project | null> {
 }
 
 export async function getSharedProjectCaptures(projectId: string): Promise<Capture[]> {
-  const supabase = createClient();
+  const supabase = createPublicClient();
 
   const { data, error } = await supabase
     .from('captures')
@@ -627,7 +636,7 @@ export async function getSharedProjectCaptures(projectId: string): Promise<Captu
 }
 
 export async function getSharedCapture(captureId: string, projectId: string): Promise<Capture | null> {
-  const supabase = createClient();
+  const supabase = createPublicClient();
 
   // Verify the project is shared
   const { data: project } = await supabase
