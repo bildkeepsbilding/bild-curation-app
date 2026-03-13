@@ -820,9 +820,42 @@ async function fetchReddit(url: string) {
     } catch (err3) {
       const msg3 = err3 instanceof Error ? err3.message : 'unknown';
       errors.push(`old JSON: ${msg3}`);
-      console.error(`[Reddit] All strategies failed:`, errors);
-      throw new Error(`Reddit extraction failed: ${errors.join(' | ')}`);
+      console.warn(`[Reddit] old JSON failed: ${msg3}`);
     }
+  }
+
+  // Strategy 6: Apify web scraper (last resort — uses residential IPs to bypass 403 blocks)
+  if (!extractionMethod) {
+    const apifyResult = await fetchRedditViaApify(url);
+    if (apifyResult) {
+      extractionMethod = 'apify';
+      console.log(`[Reddit] Apify strategy succeeded`);
+      return {
+        platform: 'reddit',
+        title: apifyResult.title,
+        body: apifyResult.selftext || '(Content extracted via Apify)',
+        author: apifyResult.author ? `u/${apifyResult.author}` : '',
+        images: apifyResult.images,
+        metadata: {
+          subreddit: apifyResult.subreddit,
+          score: apifyResult.score,
+          numComments: apifyResult.numComments,
+          flair: null,
+          permalink: url,
+          createdUtc: 0,
+          extractionMethod,
+        },
+      };
+    }
+
+    const hasToken = !!process.env.APIFY_TOKEN;
+    if (!hasToken) {
+      errors.push('Apify: APIFY_TOKEN not configured (needed for cloud deployment)');
+    } else {
+      errors.push('Apify: scraping failed');
+    }
+    console.error(`[Reddit] All strategies failed:`, errors);
+    throw new Error(`Reddit extraction failed: ${errors.join(' | ')}`);
   }
 
   // Handle crosspost: if selftext is empty, check crosspost_parent_list
@@ -1219,6 +1252,66 @@ async function fetchViaSyndication(statusId: string): Promise<{
   }
 }
 
+// Apify Reddit scraper (costs credits, used when all direct APIs are blocked)
+async function fetchRedditViaApify(url: string): Promise<{
+  title: string;
+  selftext: string;
+  author: string;
+  subreddit: string;
+  score: number;
+  numComments: number;
+  images: string[];
+} | null> {
+  const token = process.env.APIFY_TOKEN;
+  if (!token) return null;
+
+  try {
+    // Use Apify's website-content-crawler to scrape old.reddit.com
+    const actorId = 'apify~website-content-crawler';
+    const oldUrl = url.replace('www.reddit.com', 'old.reddit.com');
+    const apiUrl = `https://api.apify.com/v2/acts/${actorId}/run-sync-get-dataset-items?token=${token}&timeout=30`;
+
+    const response = await fetch(apiUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        startUrls: [{ url: oldUrl }],
+        maxCrawlPages: 1,
+        crawlerType: 'cheerio',
+      }),
+    });
+
+    if (!response.ok) {
+      console.warn(`[Reddit] Apify returned ${response.status}`);
+      return null;
+    }
+
+    const data = await response.json();
+    if (!data || data.length === 0) return null;
+
+    const item = data[0];
+    const text = item.text || item.markdown || '';
+    const title = item.metadata?.title || '';
+
+    // Parse subreddit and author from the URL/content
+    const subredditMatch = url.match(/\/r\/([^/]+)/);
+    const subreddit = subredditMatch?.[1] || '';
+
+    return {
+      title: title.replace(/ : \w+$/, '').replace(/ - Reddit$/, ''),
+      selftext: text.slice(0, 15000),
+      author: '',
+      subreddit,
+      score: 0,
+      numComments: 0,
+      images: [],
+    };
+  } catch (e) {
+    console.warn('[Reddit] Apify fallback failed:', e instanceof Error ? e.message : e);
+    return null;
+  }
+}
+
 // Strategy 3: Apify tweet scraper (costs credits, use as fallback)
 async function fetchViaApify(url: string): Promise<{
   text: string;
@@ -1432,7 +1525,11 @@ async function fetchTwitter(url: string) {
   }
 
   if (!bestBody) {
-    throw new Error('Could not extract content from this tweet/article. The post may be private or deleted.');
+    const hasApify = !!process.env.APIFY_TOKEN;
+    const hint = hasApify
+      ? 'The post may be private or deleted.'
+      : 'Twitter API services are currently unavailable. Configure APIFY_TOKEN for reliable extraction.';
+    throw new Error(`Could not extract content from this tweet. ${hint}`);
   }
 
   // Clean up the body text
