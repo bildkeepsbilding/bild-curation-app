@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
-import { getProjects, getCaptures, getAllCaptures, getProjectMap, createProject, deleteProject, ensureInbox, addCapture, findCaptureByUrl, getUniqueContentTag, decodeEntities, type Project, type Capture } from '@/lib/db';
+import { getProjects, getCaptures, getAllCaptures, getProjectMap, createProject, deleteProject, ensureInbox, getUniqueContentTag, decodeEntities, type Project, type Capture } from '@/lib/db';
 import UserMenu from '@/components/UserMenu';
 import PwaInstallPrompt from '@/components/PwaInstallPrompt';
 
@@ -21,18 +21,14 @@ export default function Home() {
   const [newName, setNewName] = useState('');
   const [newBrief, setNewBrief] = useState('');
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
-  const [urlInput, setUrlInput] = useState('');
-  const [fetching, setFetching] = useState(false);
-  const [fetchError, setFetchError] = useState('');
   const [totalCaptures, setTotalCaptures] = useState(0);
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState<Capture[]>([]);
   const [searchProjectMap, setSearchProjectMap] = useState<Record<string, Project>>({});
   const [searchCache, setSearchCache] = useState<{ captures: Capture[]; projectMap: Record<string, Project> } | null>(null);
-  const [duplicateInfo, setDuplicateInfo] = useState<{ capture: Capture; project: Project } | null>(null);
   const [toast, setToast] = useState<string | null>(null);
+  const [unsortedCollapsed, setUnsortedCollapsed] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
-  const urlInputRef = useRef<HTMLInputElement>(null);
 
   function showToast(msg: string) {
     setToast(msg);
@@ -52,29 +48,17 @@ export default function Home() {
   // Keyboard shortcuts
   useEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {
-      // Escape: close topmost modal
       if (e.key === 'Escape') {
         if (deleteConfirm) { setDeleteConfirm(null); return; }
-        if (duplicateInfo) { setDuplicateInfo(null); return; }
         if (showCreate) { setShowCreate(false); setNewName(''); setNewBrief(''); return; }
-      }
-      // Cmd/Ctrl+V: focus URL input when no input is focused
-      if ((e.metaKey || e.ctrlKey) && e.key === 'v') {
-        const active = document.activeElement;
-        const isInput = active instanceof HTMLInputElement || active instanceof HTMLTextAreaElement;
-        if (!isInput && urlInputRef.current) {
-          e.preventDefault();
-          urlInputRef.current.focus();
-        }
       }
     }
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [deleteConfirm, duplicateInfo, showCreate]);
+  }, [deleteConfirm, showCreate]);
 
   async function loadProjects() {
     try {
-      // Ensure Unsorted exists, then fetch projects and all captures in parallel
       await ensureInbox();
 
       const [p, allCaptures] = await Promise.all([
@@ -84,7 +68,6 @@ export default function Home() {
 
       setTotalCaptures(allCaptures.length);
 
-      // Build a map of projectId → captures for enrichment (no extra DB calls)
       const capturesByProject = new Map<string, Capture[]>();
       for (const c of allCaptures) {
         const list = capturesByProject.get(c.projectId) || [];
@@ -100,7 +83,6 @@ export default function Home() {
         return { ...project, coverImage, latestTitle, platforms };
       });
 
-      // Separate Unsorted from regular projects
       const inbox = enriched.find(p => p.is_inbox) || null;
       const regular = enriched.filter(p => !p.is_inbox);
 
@@ -138,66 +120,6 @@ export default function Home() {
       setSearchProjectMap(data.projectMap);
     } catch (e) {
       console.error('Search failed:', e);
-    }
-  }
-
-  async function handleCheckQuickCapture() {
-    const url = urlInput.trim();
-    if (!url) return;
-    setDuplicateInfo(null);
-    try {
-      const dup = await findCaptureByUrl(url);
-      if (dup) {
-        setDuplicateInfo(dup);
-        return;
-      }
-    } catch { /* ignore */ }
-    await doQuickCapture(url);
-  }
-
-  async function handleCaptureAnyway() {
-    setDuplicateInfo(null);
-    await doQuickCapture(urlInput.trim());
-  }
-
-  async function doQuickCapture(url: string) {
-    if (!url) return;
-
-    setFetching(true);
-    setFetchError('');
-
-    try {
-      const response = await fetch('/api/fetch-url', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ url }),
-      });
-
-      if (!response.ok) {
-        const err = await response.json().catch(() => ({}));
-        throw new Error(err.error || `Failed to fetch (${response.status})`);
-      }
-
-      const data = await response.json();
-      const inbox = await ensureInbox();
-      await addCapture(
-        inbox.id,
-        url,
-        data.title || url,
-        data.body || '',
-        data.author || '',
-        data.images || [],
-        data.metadata || {},
-      );
-
-      setUrlInput('');
-      setSearchCache(null);
-      await loadProjects();
-      showToast('Saved to Unsorted');
-    } catch (e) {
-      setFetchError(e instanceof Error ? e.message : 'Failed to capture');
-    } finally {
-      setFetching(false);
     }
   }
 
@@ -249,12 +171,12 @@ export default function Home() {
     other: '#6B7280',
   };
 
-  const platformGradients: Record<string, string> = {
-    reddit: 'linear-gradient(135deg, #FF4500 0%, #FF6B35 50%, #CC3700 100%)',
-    twitter: 'linear-gradient(135deg, #1DA1F2 0%, #4FBBF7 50%, #0D8BD9 100%)',
-    github: 'linear-gradient(135deg, #8B5CF6 0%, #A78BFA 50%, #6D28D9 100%)',
-    article: 'linear-gradient(135deg, #10B981 0%, #34D399 50%, #059669 100%)',
-    other: 'linear-gradient(135deg, #6B7280 0%, #9CA3AF 50%, #4B5563 100%)',
+  const platformLabels: Record<string, string> = {
+    twitter: 'X',
+    reddit: 'Reddit',
+    github: 'GitHub',
+    article: 'Article',
+    other: 'Other',
   };
 
   function formatCompact(n: number): string {
@@ -263,7 +185,7 @@ export default function Home() {
     return n.toString();
   }
 
-  // Generate a unique gradient from a project name
+  // Generate a unique gradient from a project name — used as left border accent
   function nameToGradient(name: string): string {
     let hash = 0;
     for (let i = 0; i < name.length; i++) {
@@ -271,30 +193,35 @@ export default function Home() {
     }
     const h1 = Math.abs(hash % 360);
     const h2 = (h1 + 40 + Math.abs((hash >> 8) % 30)) % 360;
-    return `linear-gradient(135deg, hsl(${h1}, 45%, 18%) 0%, hsl(${h2}, 35%, 12%) 100%)`;
+    return `linear-gradient(180deg, hsl(${h1}, 50%, 40%) 0%, hsl(${h2}, 40%, 28%) 100%)`;
   }
 
   const regularProjectCount = projects.length;
 
   return (
     <main className="min-h-dvh safe-top safe-bottom">
-      <header className="px-5 pt-10 pb-8 flex items-end justify-between max-w-5xl mx-auto">
+      {/* Header */}
+      <header className="px-5 pt-10 pb-6 flex items-end justify-between max-w-3xl mx-auto">
         <div>
           <h1 className="text-3xl font-bold tracking-tight" style={{ color: 'var(--text-primary)' }}>
             Sift
           </h1>
           <p className="text-sm mt-1" style={{ color: 'var(--text-tertiary)' }}>
-            {regularProjectCount} project{regularProjectCount !== 1 ? 's' : ''}
+            {regularProjectCount} project{regularProjectCount !== 1 ? 's' : ''} · {totalCaptures} capture{totalCaptures !== 1 ? 's' : ''}
           </p>
         </div>
         <div className="flex items-center gap-3">
           <button
             onClick={() => setShowCreate(true)}
-            className="flex items-center gap-1.5 px-5 py-2.5 rounded-full text-sm font-semibold transition-all active:scale-95"
-            style={{ background: 'var(--accent)', color: 'var(--bg)' }}
+            className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium transition-all active:scale-95"
+            style={{
+              background: 'transparent',
+              color: 'var(--text-primary)',
+              border: '1px solid var(--border)',
+            }}
           >
-            <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-              <path d="M8 3v10M3 8h10" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
+              <path d="M8 3v10M3 8h10" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
             </svg>
             New Project
           </button>
@@ -360,192 +287,108 @@ export default function Home() {
         </div>
       )}
 
-      <div className="px-5 pb-8 max-w-5xl mx-auto">
+      <div className="px-5 pb-8 max-w-3xl mx-auto">
         {loading ? (
           <div>
-            {/* Skeleton: Quick capture bar */}
-            <div className="mb-6">
-              <div className="skeleton h-3 w-32 mb-2" />
-              <div className="flex gap-2">
-                <div className="skeleton flex-1 h-12 rounded-xl" />
-                <div className="skeleton h-12 w-28 rounded-xl" />
-              </div>
-            </div>
-            {/* Skeleton: Unsorted card */}
-            <div className="rounded-2xl p-4 mb-6" style={{ border: '1px solid var(--border-subtle)' }}>
-              <div className="flex items-center gap-3">
-                <div className="skeleton w-10 h-10 rounded-xl" />
-                <div className="flex-1">
-                  <div className="skeleton h-4 w-24 mb-2" />
-                  <div className="skeleton h-3 w-48" />
-                </div>
-              </div>
-            </div>
-            {/* Skeleton: Project cards grid */}
-            <div className="project-grid">
-              {[1, 2, 3].map((i) => (
-                <div key={i} className="rounded-2xl overflow-hidden" style={{ border: '1px solid var(--border-subtle)' }}>
-                  <div className="skeleton h-52 w-full" style={{ borderRadius: 0 }} />
-                </div>
+            {/* Skeleton: Unsorted tray */}
+            <div className="skeleton h-14 w-full rounded-xl mb-6" />
+            {/* Skeleton: Search */}
+            <div className="skeleton h-9 w-full rounded-lg mb-8" />
+            {/* Skeleton: Project list */}
+            <div className="flex flex-col gap-3">
+              {[1, 2, 3, 4].map((i) => (
+                <div key={i} className="skeleton h-20 w-full rounded-xl" />
               ))}
             </div>
           </div>
         ) : (
           <>
-            {/* Quick Capture */}
-            <div className="mb-8">
-              <label className="text-xs font-semibold tracking-wide uppercase mb-2 block" style={{ color: 'var(--text-tertiary)' }}>
-                Quick capture
-              </label>
-              <div className="flex gap-2">
-                <input
-                  ref={urlInputRef}
-                  type="url"
-                  value={urlInput}
-                  onChange={(e) => { setUrlInput(e.target.value); setFetchError(''); setDuplicateInfo(null); }}
-                  onKeyDown={(e) => e.key === 'Enter' && urlInput.trim() && !fetching && handleCheckQuickCapture()}
-                  placeholder="Paste a URL..."
-                  disabled={fetching}
-                  className="flex-1 px-4 py-3 rounded-xl text-sm outline-none disabled:opacity-50"
-                  style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border)', color: 'var(--text-primary)' }}
-                />
-                <button
-                  onClick={handleCheckQuickCapture}
-                  disabled={!urlInput.trim() || fetching}
-                  className="px-5 py-3 rounded-xl text-sm font-semibold transition-all active:scale-95 disabled:opacity-30 flex items-center gap-2"
-                  style={{ background: 'var(--accent)', color: 'var(--bg)' }}
-                >
-                  {fetching ? (
-                    <>
-                      <div className="w-4 h-4 rounded-full border-2 animate-spin" style={{ borderColor: 'var(--bg)', borderTopColor: 'transparent' }} />
-                      Capturing...
-                    </>
-                  ) : (
-                    <>
-                      <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-                        <path d="M8 2v8M4 6l4 4 4-4" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-                        <path d="M2 12h12" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
-                      </svg>
-                      Capture
-                    </>
-                  )}
-                </button>
-              </div>
-              {fetchError && (
-                <p className="text-xs mt-1.5 px-1" style={{ color: 'var(--danger)' }}>{fetchError}</p>
-              )}
-              {duplicateInfo && (
-                <div className="mt-2 px-3 py-2.5 rounded-xl text-xs flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 sm:gap-3" style={{ background: 'var(--accent-dim)', border: '1px solid var(--accent)40' }}>
-                  <span style={{ color: 'var(--accent)' }}>
-                    Already captured in <strong>{duplicateInfo.project.name}</strong>
-                  </span>
-                  <div className="flex items-center gap-2 flex-shrink-0">
-                    <button
-                      onClick={() => router.push(`/project/${duplicateInfo.project.id}`)}
-                      className="px-2.5 py-1 rounded-lg text-[11px] font-medium transition-colors"
-                      style={{ background: 'var(--bg)', color: 'var(--text-secondary)', border: '1px solid var(--border)' }}
-                    >
-                      Go to existing
-                    </button>
-                    <button
-                      onClick={handleCaptureAnyway}
-                      className="px-2.5 py-1 rounded-lg text-[11px] font-semibold transition-colors"
-                      style={{ background: 'var(--accent)', color: 'var(--bg)' }}
-                    >
-                      Capture anyway
-                    </button>
-                  </div>
-                </div>
-              )}
-            </div>
-
-            {/* Unsorted Card — the living inbox */}
+            {/* Unsorted Tray — pinned above projects */}
             {inboxProject && (
               <div
-                className="unsorted-card rounded-2xl p-5 cursor-pointer mb-8"
-                onClick={() => inboxProject && router.push(`/project/${inboxProject.id}`)}
+                className="unsorted-tray rounded-xl mb-6"
+                style={{
+                  background: 'var(--bg-hover)',
+                  border: '1px solid var(--border-subtle)',
+                }}
               >
-                <div className="flex items-center gap-3.5">
-                  <div className="w-11 h-11 rounded-xl flex items-center justify-center flex-shrink-0" style={{ background: 'var(--accent-dim)', boxShadow: '0 0 16px rgba(232, 255, 71, 0.08)' }}>
-                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" style={{ color: 'var(--accent)' }}>
-                      <path d="M3 8l3.89 5.42a2 2 0 001.64.86h6.94a2 2 0 001.64-.86L21 8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-                      <rect x="3" y="4" width="18" height="16" rx="2" stroke="currentColor" strokeWidth="1.5" />
+                <div
+                  className="flex items-center justify-between px-4 py-3 cursor-pointer select-none"
+                  onClick={() => setUnsortedCollapsed(!unsortedCollapsed)}
+                >
+                  <div className="flex items-center gap-3 min-w-0 flex-1">
+                    {/* Collapse toggle */}
+                    <svg
+                      width="12" height="12" viewBox="0 0 16 16" fill="none"
+                      className="flex-shrink-0 transition-transform"
+                      style={{
+                        color: 'var(--text-tertiary)',
+                        transform: unsortedCollapsed ? 'rotate(-90deg)' : 'rotate(0deg)',
+                      }}
+                    >
+                      <path d="M4 6l4 4 4-4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
                     </svg>
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2">
-                      <h3 className="text-base font-semibold" style={{ color: 'var(--text-primary)' }}>Unsorted</h3>
-                      <span className="text-xs px-2 py-0.5 rounded-full font-medium" style={{ background: 'var(--accent-dim)', color: 'var(--accent)' }}>
-                        {inboxProject.captureCount || 0}
+                    <span className="text-sm font-medium" style={{ color: 'var(--text-secondary)' }}>
+                      Unsorted
+                    </span>
+                    <span
+                      className="text-[11px] px-1.5 py-0.5 rounded font-medium flex-shrink-0"
+                      style={{
+                        background: inboxProject.captureCount > 0 ? 'var(--accent-dim)' : 'var(--bg-elevated)',
+                        color: inboxProject.captureCount > 0 ? 'var(--accent)' : 'var(--text-tertiary)',
+                      }}
+                    >
+                      {inboxProject.captureCount || 0}
+                    </span>
+                    {/* Latest capture preview — only when expanded and has captures */}
+                    {!unsortedCollapsed && inboxProject.captureCount > 0 && inboxProject.latestTitle && (
+                      <span className="text-xs truncate hidden sm:inline" style={{ color: 'var(--text-tertiary)' }}>
+                        {decodeEntities(inboxProject.latestTitle)}
                       </span>
-                    </div>
-                    {inboxProject.captureCount > 0 && inboxProject.latestTitle ? (
-                      <p className="text-xs mt-0.5 truncate" style={{ color: 'var(--text-tertiary)' }}>
-                        Latest: {decodeEntities(inboxProject.latestTitle)}
-                      </p>
-                    ) : (
-                      <p className="text-xs mt-0.5" style={{ color: 'var(--text-tertiary)' }}>
-                        Capture a thought to get started
-                      </p>
                     )}
                   </div>
-                  <svg width="16" height="16" viewBox="0 0 16 16" fill="none" style={{ color: 'var(--text-tertiary)' }}>
-                    <path d="M6 4l4 4-4 4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-                  </svg>
+                  <button
+                    onClick={(e) => { e.stopPropagation(); router.push(`/project/${inboxProject.id}`); }}
+                    className="flex items-center gap-1 text-xs font-medium flex-shrink-0 px-2 py-1 rounded-md transition-colors"
+                    style={{ color: 'var(--text-secondary)', background: 'transparent' }}
+                  >
+                    Review
+                    <svg width="12" height="12" viewBox="0 0 16 16" fill="none">
+                      <path d="M6 4l4 4-4 4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                    </svg>
+                  </button>
                 </div>
+                {/* Expanded state — empty message */}
+                {!unsortedCollapsed && inboxProject.captureCount === 0 && (
+                  <div className="px-4 pb-3">
+                    <p className="text-xs" style={{ color: 'var(--text-tertiary)', opacity: 0.6 }}>
+                      Captures waiting to be sorted will appear here
+                    </p>
+                  </div>
+                )}
               </div>
             )}
 
             {/* Onboarding Hero — shown when no captures yet */}
             {totalCaptures === 0 && !loading && (
-              <div className="py-8 text-center">
+              <div className="py-12 text-center">
                 <h2 className="text-2xl sm:text-3xl font-bold tracking-tight mb-2" style={{ color: 'var(--text-primary)' }}>
                   Welcome to Sift
                 </h2>
-                <p className="text-base font-medium mb-3" style={{ color: 'var(--accent)' }}>
+                <p className="text-base font-medium mb-3" style={{ color: 'var(--text-secondary)' }}>
                   Curate the internet for Claude.
                 </p>
-                <p className="text-sm max-w-md mx-auto mb-8" style={{ color: 'var(--text-secondary)', lineHeight: 1.7 }}>
-                  Paste any URL — Reddit posts, X threads, GitHub repos, articles — and Sift extracts the content, images, and metadata. Organize into projects, add your context, and package everything as a PDF ready for Claude&apos;s project files.
+                <p className="text-sm max-w-md mx-auto mb-6" style={{ color: 'var(--text-tertiary)', lineHeight: 1.7 }}>
+                  Use the Chrome extension to capture URLs — Reddit posts, X threads, GitHub repos, articles — then organize into projects and package for Claude.
                 </p>
-
-                <div className="text-left max-w-md mx-auto">
-                  <p className="text-xs font-semibold tracking-wide uppercase mb-3" style={{ color: 'var(--text-tertiary)' }}>
-                    Try one of these
-                  </p>
-                  <div className="flex flex-col gap-2">
-                    {[
-                      { platform: 'reddit', color: '#FF4500', label: 'Reddit', title: 'A popular discussion thread', url: 'https://www.reddit.com/r/technology/comments/1j0ixq9/' },
-                      { platform: 'twitter', color: '#1DA1F2', label: 'X', title: 'An interesting thread', url: 'https://x.com/kaborojevic/status/1895848794612543905' },
-                      { platform: 'github', color: '#8B5CF6', label: 'GitHub', title: 'Claude Code repository', url: 'https://github.com/anthropics/claude-code' },
-                      { platform: 'article', color: '#10B981', label: 'Article', title: 'Anthropic Economic Index analysis', url: 'https://simonwillison.net/2025/Feb/7/anthropic-economic-index/' },
-                    ].map((example) => (
-                      <button
-                        key={example.url}
-                        onClick={() => { setUrlInput(example.url); urlInputRef.current?.focus(); }}
-                        className="w-full text-left px-4 py-3 rounded-xl flex items-center gap-3 transition-all active:scale-[0.98]"
-                        style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border-subtle)' }}
-                      >
-                        <div className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ background: example.color }} />
-                        <div className="flex-1 min-w-0">
-                          <span className="text-sm font-medium block" style={{ color: 'var(--text-primary)' }}>{example.title}</span>
-                          <span className="text-[11px] block truncate" style={{ color: 'var(--text-tertiary)' }}>{example.url}</span>
-                        </div>
-                        <span className="text-[10px] px-1.5 py-0.5 rounded font-medium flex-shrink-0" style={{ background: example.color + '20', color: example.color }}>
-                          {example.label}
-                        </span>
-                      </button>
-                    ))}
-                  </div>
-                </div>
               </div>
             )}
 
-            {/* Search Bar */}
+            {/* Search Bar — quiet filter utility */}
             {totalCaptures > 0 && (
-              <div className="mb-4">
+              <div className="mb-8">
                 <div className="relative">
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" className="absolute left-3.5 top-1/2 -translate-y-1/2" style={{ color: 'var(--text-tertiary)' }}>
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" className="absolute left-3 top-1/2 -translate-y-1/2" style={{ color: 'var(--text-tertiary)', opacity: 0.6 }}>
                     <circle cx="11" cy="11" r="7" stroke="currentColor" strokeWidth="1.5" />
                     <path d="M16 16l4.5 4.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
                   </svg>
@@ -553,9 +396,13 @@ export default function Home() {
                     type="text"
                     value={searchQuery}
                     onChange={(e) => handleSearch(e.target.value)}
-                    placeholder="Search all captures..."
-                    className="w-full pl-10 pr-4 py-2.5 rounded-xl text-sm outline-none"
-                    style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border)', color: 'var(--text-primary)' }}
+                    placeholder="Search captures..."
+                    className="w-full pl-9 pr-4 py-2 rounded-lg text-[13px] outline-none"
+                    style={{
+                      background: 'transparent',
+                      border: '1px solid var(--border-subtle)',
+                      color: 'var(--text-primary)',
+                    }}
                   />
                   {searchQuery && (
                     <button
@@ -563,7 +410,7 @@ export default function Home() {
                       className="absolute right-3 top-1/2 -translate-y-1/2 p-0.5 rounded"
                       style={{ color: 'var(--text-tertiary)' }}
                     >
-                      <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" /></svg>
+                      <svg width="12" height="12" viewBox="0 0 16 16" fill="none"><path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" /></svg>
                     </button>
                   )}
                 </div>
@@ -581,102 +428,35 @@ export default function Home() {
                     <p className="text-sm" style={{ color: 'var(--text-tertiary)' }}>No captures match your search</p>
                   </div>
                 ) : (
-                  <div className="capture-grid stagger-children">
+                  <div className="flex flex-col gap-2 stagger-children">
                     {searchResults.map((capture) => {
-                      const hasOgImage = capture.platform === 'article' ? !!(capture.metadata as Record<string, unknown>)?.hasOgImage : true;
-                      const hasImage = capture.images && capture.images.length > 0 && capture.platform !== 'github' && hasOgImage;
-                      const tag = getUniqueContentTag(capture);
                       const projectName = searchProjectMap[capture.projectId]?.name || 'Unknown';
                       return (
                         <div
                           key={capture.id}
-                          className="capture-card rounded-2xl overflow-hidden cursor-pointer"
-                          style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border-subtle)' }}
+                          className="search-result-card rounded-xl px-4 py-3 cursor-pointer transition-colors"
+                          style={{
+                            background: 'var(--bg-elevated)',
+                            border: '1px solid var(--border-subtle)',
+                          }}
                           onClick={() => router.push(`/project/${capture.projectId}`)}
                         >
-                          {hasImage ? (
-                            <div className="relative w-full" style={{ height: '140px' }}>
-                              <img src={capture.images[0]} alt="" className="w-full h-full object-cover" loading="lazy" referrerPolicy="no-referrer" onError={(e) => { const parent = (e.target as HTMLImageElement).closest('.relative') as HTMLElement | null; if (parent) parent.style.display = 'none'; }} />
-                              <div className="absolute inset-0" style={{ background: 'linear-gradient(to top, var(--bg-elevated) 0%, rgba(0,0,0,0.4) 60%, rgba(0,0,0,0.15) 100%)' }} />
-                              <div className="absolute top-3 left-3 flex items-center gap-1.5">
-                                <span className="px-2 py-0.5 rounded-md text-[11px] font-semibold" style={{ background: (platformColors[capture.platform] || platformColors.other) + 'dd', color: '#fff', backdropFilter: 'blur(4px)' }}>
-                                  {capture.platform === 'twitter' ? 'X' : capture.platform === 'reddit' ? 'Reddit' : capture.platform === 'github' ? 'GitHub' : 'Article'}
-                                </span>
-                                {tag && (
-                                <span className="px-2 py-0.5 rounded text-[11px] font-medium" style={{ background: 'rgba(0,0,0,0.5)', color: 'var(--text-tertiary)', backdropFilter: 'blur(4px)' }}>
-                                  {tag}
-                                </span>
-                                )}
+                          <div className="flex items-start gap-3">
+                            <div
+                              className="w-2 h-2 rounded-full flex-shrink-0 mt-1.5"
+                              style={{ background: platformColors[capture.platform] || platformColors.other }}
+                            />
+                            <div className="flex-1 min-w-0">
+                              <h4 className="text-[14px] font-medium truncate" style={{ color: 'var(--text-primary)' }}>
+                                {decodeEntities(capture.title)}
+                              </h4>
+                              <div className="flex items-center gap-2 mt-0.5">
+                                <span className="text-[11px]" style={{ color: 'var(--text-tertiary)' }}>{projectName}</span>
+                                <span className="text-[11px]" style={{ color: 'var(--text-tertiary)', opacity: 0.4 }}>·</span>
+                                <span className="text-[11px]" style={{ color: 'var(--text-tertiary)' }}>{capture.author}</span>
+                                <span className="text-[11px]" style={{ color: 'var(--text-tertiary)', opacity: 0.4 }}>·</span>
+                                <span className="text-[10px] font-mono" style={{ color: 'var(--text-tertiary)', opacity: 0.6 }}>{formatDate(capture.createdAt)}</span>
                               </div>
-                            </div>
-                          ) : (
-                            <div className="relative w-full overflow-hidden" style={{ height: '100px', background: platformGradients[capture.platform] || platformGradients.other }}>
-                              <div className="absolute inset-0 flex items-center justify-center" style={{ opacity: 0.08 }}>
-                                {capture.platform === 'twitter' && <svg width="60" height="60" viewBox="0 0 24 24" fill="white"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg>}
-                                {capture.platform === 'reddit' && <svg width="60" height="60" viewBox="0 0 24 24" fill="white"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm5.8 11.33c.02.16.03.33.03.5 0 2.55-2.97 4.63-6.63 4.63-3.67 0-6.64-2.07-6.64-4.63 0-.17.01-.33.03-.5A1.98 1.98 0 013.4 12c0-1.1.9-2 2-2 .53 0 1.01.21 1.37.55C8.19 9.55 9.97 9 12 9c0 0 1.69-4.47 1.84-4.83.04-.1.13-.17.24-.18l3.32-.44c.18-.48.63-.83 1.17-.83.69 0 1.25.56 1.25 1.25s-.56 1.25-1.25 1.25c-.52 0-.96-.32-1.15-.77l-2.97.39-1.52 4.02c1.97.04 3.69.58 5.09 1.56.36-.34.85-.55 1.38-.55 1.1 0 2 .9 2 2a2 2 0 01-1.2 1.83z"/></svg>}
-                                {capture.platform === 'github' && <svg width="60" height="60" viewBox="0 0 24 24" fill="white"><path d="M12 2C6.477 2 2 6.477 2 12c0 4.42 2.865 8.17 6.839 9.49.5.092.682-.217.682-.482 0-.237-.008-.866-.013-1.7-2.782.604-3.369-1.34-3.369-1.34-.454-1.156-1.11-1.464-1.11-1.464-.908-.62.069-.608.069-.608 1.003.07 1.531 1.03 1.531 1.03.892 1.529 2.341 1.087 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.11-4.555-4.943 0-1.091.39-1.984 1.029-2.683-.103-.253-.446-1.27.098-2.647 0 0 .84-.269 2.75 1.025A9.578 9.578 0 0112 6.836c.85.004 1.705.115 2.504.337 1.909-1.294 2.747-1.025 2.747-1.025.546 1.377.203 2.394.1 2.647.64.699 1.028 1.592 1.028 2.683 0 3.842-2.339 4.687-4.566 4.935.359.309.678.919.678 1.852 0 1.336-.012 2.415-.012 2.743 0 .267.18.578.688.48C19.138 20.167 22 16.418 22 12c0-5.523-4.477-10-10-10z"/></svg>}
-                                {(capture.platform === 'article' || capture.platform === 'other') && <svg width="60" height="60" viewBox="0 0 24 24" fill="white"><path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-5 14H7v-2h7v2zm3-4H7v-2h10v2zm0-4H7V7h10v2z"/></svg>}
-                              </div>
-                              <div className="absolute inset-0 flex items-center justify-center gap-3 px-3">
-                                {capture.platform === 'twitter' && capture.metadata && (
-                                  <div className="flex items-center gap-3 text-white">
-                                    {(capture.metadata as Record<string, number>).likes > 0 && (
-                                      <div className="text-center"><div className="text-lg font-bold">{formatCompact((capture.metadata as Record<string, number>).likes)}</div><div className="text-[9px] opacity-80">likes</div></div>
-                                    )}
-                                    {(capture.metadata as Record<string, number>).retweets > 0 && (
-                                      <div className="text-center"><div className="text-lg font-bold">{formatCompact((capture.metadata as Record<string, number>).retweets)}</div><div className="text-[9px] opacity-80">reposts</div></div>
-                                    )}
-                                    {(capture.metadata as Record<string, number>).views > 0 && (
-                                      <div className="text-center"><div className="text-lg font-bold">{formatCompact((capture.metadata as Record<string, number>).views)}</div><div className="text-[9px] opacity-80">views</div></div>
-                                    )}
-                                  </div>
-                                )}
-                                {capture.platform === 'reddit' && capture.metadata && (
-                                  <div className="flex items-center gap-3 text-white">
-                                    {(capture.metadata as Record<string, number>).score > 0 && (
-                                      <div className="text-center"><div className="text-lg font-bold">{formatCompact((capture.metadata as Record<string, number>).score)}</div><div className="text-[9px] opacity-80">points</div></div>
-                                    )}
-                                    {(capture.metadata as Record<string, number>).numComments > 0 && (
-                                      <div className="text-center"><div className="text-lg font-bold">{formatCompact((capture.metadata as Record<string, number>).numComments)}</div><div className="text-[9px] opacity-80">comments</div></div>
-                                    )}
-                                  </div>
-                                )}
-                                {capture.platform === 'github' && capture.metadata && (
-                                  <div className="flex items-center gap-3 text-white">
-                                    {(capture.metadata as Record<string, number>).stars > 0 && (
-                                      <div className="text-center"><div className="text-lg font-bold">{formatCompact((capture.metadata as Record<string, number>).stars)}</div><div className="text-[9px] opacity-80">stars</div></div>
-                                    )}
-                                    {(capture.metadata as Record<string, number>).forks > 0 && (
-                                      <div className="text-center"><div className="text-lg font-bold">{formatCompact((capture.metadata as Record<string, number>).forks)}</div><div className="text-[9px] opacity-80">forks</div></div>
-                                    )}
-                                  </div>
-                                )}
-                              </div>
-                              <div className="absolute inset-x-0 bottom-0 h-8" style={{ background: 'linear-gradient(to top, var(--bg-elevated) 0%, transparent 100%)' }} />
-                              <div className="absolute top-2.5 left-2.5 flex items-center gap-1.5">
-                                <span className="px-2 py-0.5 rounded-md text-[11px] font-semibold" style={{ background: 'rgba(255,255,255,0.2)', color: '#fff', backdropFilter: 'blur(4px)' }}>
-                                  {capture.platform === 'twitter' ? 'X' : capture.platform === 'reddit' ? 'Reddit' : capture.platform === 'github' ? 'GitHub' : 'Article'}
-                                </span>
-                                {tag && (
-                                <span className="px-2 py-0.5 rounded text-[11px] font-medium" style={{ background: 'rgba(255,255,255,0.15)', color: 'rgba(255,255,255,0.8)', backdropFilter: 'blur(4px)' }}>
-                                  {tag}
-                                </span>
-                                )}
-                              </div>
-                            </div>
-                          )}
-                          <div className="p-4" style={{ marginTop: hasImage ? '-20px' : '-10px', position: 'relative' }}>
-                            <div className="flex items-center gap-2 mb-2">
-                              <span className="px-1.5 py-0.5 rounded text-[10px] font-medium" style={{ background: 'var(--accent-dim)', color: 'var(--accent)' }}>
-                                {projectName}
-                              </span>
-                            </div>
-                            <h3 className="text-[15px] font-bold mb-1.5 line-clamp-2" style={{ color: 'var(--text-primary)', lineHeight: 1.4 }}>
-                              {decodeEntities(capture.title)}
-                            </h3>
-                            <div className="flex items-center justify-between">
-                              <span className="text-[11px] truncate" style={{ color: 'var(--text-tertiary)', maxWidth: '60%' }}>{capture.author}</span>
-                              <span className="text-[10px] font-mono" style={{ color: 'var(--text-tertiary)', opacity: 0.6 }}>{formatDate(capture.createdAt)}</span>
                             </div>
                           </div>
                         </div>
@@ -690,31 +470,31 @@ export default function Home() {
                 {/* View All Captures link */}
                 {totalCaptures > 0 && (
                   <div
-                    className="mb-8 flex items-center justify-between px-1 cursor-pointer group"
+                    className="mb-10 flex items-center justify-between px-1 cursor-pointer group"
                     onClick={() => router.push('/all')}
                   >
                     <div className="flex items-center gap-2">
-                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" style={{ color: 'var(--text-tertiary)' }}>
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" style={{ color: 'var(--text-tertiary)' }}>
                         <path d="M4 6h16M4 12h16M4 18h16" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
                       </svg>
-                      <span className="text-sm font-medium group-hover:underline" style={{ color: 'var(--text-secondary)' }}>
+                      <span className="text-[13px] font-medium group-hover:underline" style={{ color: 'var(--text-secondary)' }}>
                         View all captures
                       </span>
-                      <span className="text-xs px-1.5 py-0.5 rounded-full" style={{ background: 'var(--bg-hover)', color: 'var(--text-tertiary)' }}>
+                      <span className="text-[11px] px-1.5 py-0.5 rounded" style={{ background: 'var(--bg-hover)', color: 'var(--text-tertiary)' }}>
                         {totalCaptures}
                       </span>
                     </div>
-                    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" className="transition-transform group-hover:translate-x-0.5" style={{ color: 'var(--text-tertiary)' }}>
+                    <svg width="12" height="12" viewBox="0 0 16 16" fill="none" className="transition-transform group-hover:translate-x-0.5" style={{ color: 'var(--text-tertiary)' }}>
                       <path d="M6 4l4 4-4 4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
                     </svg>
                   </div>
                 )}
 
-                {/* Project Cards */}
+                {/* Project Cards — text-forward research folders */}
                 {projects.length === 0 ? (
                   <div className="flex flex-col items-center justify-center py-16 text-center">
-                    <div className="w-20 h-20 rounded-2xl flex items-center justify-center mb-4" style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border)' }}>
-                      <svg width="32" height="32" viewBox="0 0 24 24" fill="none" style={{ color: 'var(--text-tertiary)' }}>
+                    <div className="w-16 h-16 rounded-xl flex items-center justify-center mb-4" style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border-subtle)' }}>
+                      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" style={{ color: 'var(--text-tertiary)' }}>
                         <rect x="3" y="3" width="18" height="18" rx="3" stroke="currentColor" strokeWidth="1.5" />
                         <path d="M3 9h18" stroke="currentColor" strokeWidth="1.5" />
                         <circle cx="6.5" cy="6" r="0.75" fill="currentColor" />
@@ -725,87 +505,87 @@ export default function Home() {
                     <p className="text-sm mt-1" style={{ color: 'var(--text-tertiary)' }}>Create one to start curating</p>
                   </div>
                 ) : (
-                  <div className="project-grid stagger-children">
-                    {projects.map((project) => (
-                      <div
-                        key={project.id}
-                        className="project-card-hero group rounded-2xl overflow-hidden cursor-pointer relative"
-                        style={{ border: '1px solid var(--border-subtle)' }}
-                        onClick={() => router.push(`/project/${project.id}`)}
-                      >
-                        {/* Hero image background or name-hashed gradient */}
-                        <div className="relative h-52 overflow-hidden" style={{ background: nameToGradient(project.name) }}>
-                          {project.coverImage ? (
-                            <img
-                              src={project.coverImage}
-                              alt=""
-                              className="w-full h-full object-cover"
-                              referrerPolicy="no-referrer"
-                              onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
-                            />
-                          ) : (
-                            <div className="w-full h-full flex items-center justify-center">
-                              <span className="text-4xl font-bold" style={{ color: 'rgba(255,255,255,0.08)' }}>
-                                {project.name.charAt(0).toUpperCase()}
-                              </span>
-                            </div>
-                          )}
+                  <div className="flex flex-col gap-2 stagger-children">
+                    {projects.map((project) => {
+                      const summaryLine = project.brief
+                        ? project.brief.split('\n')[0]
+                        : project.latestTitle
+                          ? decodeEntities(project.latestTitle)
+                          : null;
 
-                          {/* Dark gradient overlay for text readability */}
-                          <div className="absolute inset-0" style={{
-                            background: 'linear-gradient(to top, rgba(0,0,0,0.85) 0%, rgba(0,0,0,0.3) 50%, rgba(0,0,0,0.1) 100%)'
-                          }} />
+                      return (
+                        <div
+                          key={project.id}
+                          className="project-folder group rounded-xl cursor-pointer relative overflow-hidden"
+                          style={{
+                            background: 'var(--bg-elevated)',
+                            border: '1px solid var(--border-subtle)',
+                          }}
+                          onClick={() => router.push(`/project/${project.id}`)}
+                        >
+                          {/* Name-hashed gradient left border */}
+                          <div
+                            className="absolute left-0 top-0 bottom-0 w-[3px]"
+                            style={{ background: nameToGradient(project.name) }}
+                          />
 
-                          {/* Delete button */}
-                          <button
-                            onClick={(e) => { e.stopPropagation(); setDeleteConfirm(project.id); }}
-                            className="absolute top-3 right-3 p-1.5 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity z-10"
-                            style={{ background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(8px)', color: 'var(--text-secondary)' }}
-                          >
-                            <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" /></svg>
-                          </button>
-
-                          {/* Overlaid text content at bottom */}
-                          <div className="absolute inset-x-0 bottom-0 p-4 z-10">
-                            <h3 className="text-lg font-semibold truncate text-white">
-                              {project.name}
-                            </h3>
-                            <div className="flex items-center gap-2 mt-1">
-                              {/* Platform dots */}
-                              {project.platforms.length > 0 && (
-                                <div className="flex items-center gap-1">
-                                  {project.platforms.map(p => (
-                                    <div
-                                      key={p}
-                                      className="w-2 h-2 rounded-full"
-                                      style={{ background: platformColors[p] || platformColors.other }}
-                                      title={p}
-                                    />
-                                  ))}
-                                </div>
-                              )}
-                              <span className="text-xs" style={{ color: 'rgba(255,255,255,0.6)' }}>
-                                {project.captureCount || 0} capture{(project.captureCount || 0) !== 1 ? 's' : ''}
-                              </span>
-                              <span className="text-xs" style={{ color: 'rgba(255,255,255,0.4)' }}>·</span>
-                              <span className="text-xs" style={{ color: 'rgba(255,255,255,0.5)' }}>
-                                {formatDate(project.updatedAt)}
-                              </span>
-                            </div>
-                            {project.latestTitle && (
-                              <p className="text-xs mt-1.5 truncate" style={{ color: 'rgba(255,255,255,0.45)' }}>
-                                {decodeEntities(project.latestTitle)}
+                          <div className="pl-5 pr-4 py-4 flex items-center gap-4">
+                            <div className="flex-1 min-w-0">
+                              {/* Project name */}
+                              <h3 className="text-[15px] font-semibold truncate" style={{ color: 'var(--text-primary)' }}>
+                                {project.name}
+                              </h3>
+                              {/* Summary line */}
+                              <p className="text-[13px] mt-0.5 truncate" style={{
+                                color: summaryLine ? 'var(--text-secondary)' : 'var(--text-tertiary)',
+                                opacity: summaryLine ? 1 : 0.5,
+                              }}>
+                                {summaryLine || 'No captures yet'}
                               </p>
-                            )}
-                            {!project.latestTitle && project.captureCount === 0 && (
-                              <p className="text-xs mt-1.5" style={{ color: 'rgba(255,255,255,0.3)' }}>
-                                No captures yet
-                              </p>
-                            )}
+                              {/* Metadata line */}
+                              <div className="flex items-center gap-2 mt-1.5">
+                                <span className="text-[11px]" style={{ color: 'var(--text-tertiary)' }}>
+                                  {project.captureCount || 0} capture{(project.captureCount || 0) !== 1 ? 's' : ''}
+                                </span>
+                                {project.platforms.length > 0 && (
+                                  <>
+                                    <span style={{ color: 'var(--text-tertiary)', opacity: 0.3 }}>·</span>
+                                    <div className="flex items-center gap-1.5">
+                                      {project.platforms.map(p => (
+                                        <div
+                                          key={p}
+                                          className="w-[6px] h-[6px] rounded-full"
+                                          style={{ background: platformColors[p] || platformColors.other }}
+                                          title={platformLabels[p] || p}
+                                        />
+                                      ))}
+                                    </div>
+                                  </>
+                                )}
+                                <span style={{ color: 'var(--text-tertiary)', opacity: 0.3 }}>·</span>
+                                <span className="text-[10px] font-mono" style={{ color: 'var(--text-tertiary)', opacity: 0.5 }}>
+                                  {formatDate(project.updatedAt)}
+                                </span>
+                              </div>
+                            </div>
+
+                            {/* Delete button */}
+                            <button
+                              onClick={(e) => { e.stopPropagation(); setDeleteConfirm(project.id); }}
+                              className="p-1.5 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0"
+                              style={{ color: 'var(--text-tertiary)' }}
+                            >
+                              <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" /></svg>
+                            </button>
+
+                            {/* Chevron */}
+                            <svg width="14" height="14" viewBox="0 0 16 16" fill="none" className="flex-shrink-0" style={{ color: 'var(--text-tertiary)', opacity: 0.4 }}>
+                              <path d="M6 4l4 4-4 4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                            </svg>
                           </div>
                         </div>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 )}
               </>
