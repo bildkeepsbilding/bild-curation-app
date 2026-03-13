@@ -602,7 +602,7 @@ export default function ProjectPage() {
       {viewing && (
         <div className="fixed inset-0 z-50 flex flex-col" style={{ background: 'var(--bg)' }}>
           {/* Top bar */}
-          <div className="flex items-center justify-between px-5 py-3 safe-top" style={{ borderBottom: '1px solid var(--border-subtle)' }}>
+          <div className="flex items-center justify-between px-6 py-3 safe-top" style={{ borderBottom: '1px solid var(--border-subtle)' }}>
             <button onClick={() => { setViewing(null); setEditingNote(false); }} className="flex items-center gap-1.5 text-sm font-medium" style={{ color: 'var(--text-secondary)' }}>
               <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M10 4l-4 4 4 4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" /></svg>
               Back
@@ -611,7 +611,7 @@ export default function ProjectPage() {
           </div>
 
           {/* Scrollable content */}
-          <div className="flex-1 overflow-auto">
+          <div className="flex-1 overflow-y-auto overflow-x-hidden">
             {/* Hero image full-bleed */}
             {viewing.images && viewing.images.length > 0 && !viewing.body?.includes('[image:') && (
               <div className="w-full" style={{ maxHeight: '320px', overflow: 'hidden' }}>
