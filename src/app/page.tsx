@@ -250,7 +250,7 @@ export default function Home() {
               maxLength={50}
             />
             <div className="mt-3">
-              <label className="text-xs font-semibold tracking-wide uppercase mb-1.5 block" style={{ color: 'var(--accent)' }}>Project Brief</label>
+              <label className="text-xs font-semibold tracking-wide uppercase mb-1.5 block" style={{ color: 'var(--text-secondary)' }}>Project Brief</label>
               <textarea
                 value={newBrief}
                 onChange={(e) => setNewBrief(e.target.value)}
@@ -263,7 +263,7 @@ export default function Home() {
             </div>
             <div className="flex gap-3 mt-4">
               <button onClick={() => { setShowCreate(false); setNewName(''); setNewBrief(''); }} className="flex-1 py-3 rounded-xl text-sm font-medium active:scale-95" style={{ background: 'var(--bg)', color: 'var(--text-secondary)', border: '1px solid var(--border)' }}>Cancel</button>
-              <button onClick={handleCreate} disabled={!newName.trim()} className="flex-1 py-3 rounded-xl text-sm font-semibold active:scale-95 disabled:opacity-30" style={{ background: 'var(--accent)', color: 'var(--bg)' }}>Create</button>
+              <button onClick={handleCreate} disabled={!newName.trim()} className="flex-1 py-3 rounded-xl text-sm font-semibold active:scale-95 disabled:opacity-30" style={{ background: 'transparent', color: 'var(--text-primary)', border: '1px solid var(--border)' }}>Create</button>
             </div>
           </div>
         </div>
