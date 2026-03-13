@@ -1,5 +1,5 @@
 import type { Metadata } from 'next';
-import { createClient } from '@/lib/supabase/server';
+import { createClient } from '@supabase/supabase-js';
 
 type Props = {
   params: Promise<{ id: string }>;
@@ -10,7 +10,11 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const { id } = await params;
 
   try {
-    const supabase = await createClient();
+    // Use anonymous client — no cookies needed for public shared data
+    const supabase = createClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY!,
+    );
     const { data: project } = await supabase
       .from('projects')
       .select('name, brief')
