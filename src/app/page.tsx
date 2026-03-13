@@ -210,10 +210,10 @@ export default function Home() {
             {regularProjectCount} project{regularProjectCount !== 1 ? 's' : ''} · {totalCaptures} capture{totalCaptures !== 1 ? 's' : ''}
           </p>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2 sm:gap-3">
           <button
             onClick={() => setShowCreate(true)}
-            className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium transition-all active:scale-95"
+            className="flex items-center gap-1.5 px-3 sm:px-4 py-2 rounded-lg text-[13px] sm:text-sm font-medium transition-all active:scale-95 whitespace-nowrap"
             style={{
               background: 'transparent',
               color: 'var(--text-primary)',
@@ -450,10 +450,10 @@ export default function Home() {
                               <h4 className="text-[14px] font-medium truncate" style={{ color: 'var(--text-primary)' }}>
                                 {decodeEntities(capture.title)}
                               </h4>
-                              <div className="flex items-center gap-2 mt-0.5">
-                                <span className="text-[11px]" style={{ color: 'var(--text-tertiary)' }}>{projectName}</span>
+                              <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 mt-0.5">
+                                <span className="text-[11px] truncate max-w-[120px]" style={{ color: 'var(--text-tertiary)' }}>{projectName}</span>
                                 <span className="text-[11px]" style={{ color: 'var(--text-tertiary)', opacity: 0.4 }}>·</span>
-                                <span className="text-[11px]" style={{ color: 'var(--text-tertiary)' }}>{capture.author}</span>
+                                <span className="text-[11px] truncate max-w-[100px]" style={{ color: 'var(--text-tertiary)' }}>{capture.author}</span>
                                 <span className="text-[11px]" style={{ color: 'var(--text-tertiary)', opacity: 0.4 }}>·</span>
                                 <span className="text-[10px] font-mono" style={{ color: 'var(--text-tertiary)', opacity: 0.6 }}>{formatDate(capture.createdAt)}</span>
                               </div>
