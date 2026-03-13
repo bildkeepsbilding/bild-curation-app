@@ -845,7 +845,7 @@ export default function ProjectPage() {
                 <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8l-6-6z" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
                 <path d="M14 2v6h6M16 13H8M16 17H8M10 9H8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
               </svg>
-              <p className="text-[10px] font-semibold tracking-wide uppercase" style={{ color: 'var(--accent)' }}>Project Brief</p>
+              <p className="text-[10px] font-semibold tracking-wide uppercase" style={{ color: 'var(--text-secondary)' }}>Project Brief</p>
             </div>
             {editingBrief ? (
               <div className="px-4 pb-3">
