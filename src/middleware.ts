@@ -16,6 +16,6 @@ export const config = {
      * - auth callback
      * - API routes (they handle their own auth)
      */
-    '/((?!_next/static|_next/image|favicon.ico|login|auth|api|extension|p/).*)',
+    '/((?!_next/static|_next/image|favicon.ico|login|auth|api|extension|p/|share|sw\\.js|manifest\\.json|icons/).*)',
   ],
 };
