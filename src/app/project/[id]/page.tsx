@@ -93,6 +93,7 @@ export default function ProjectPage() {
   const [optimisticError, setOptimisticError] = useState<string | null>(null);
   const [sharing, setSharing] = useState(false);
   const [shareCopied, setShareCopied] = useState(false);
+  const [quickNote, setQuickNote] = useState('');
   const urlInputRef = useRef<HTMLInputElement>(null);
 
   function showToast(msg: string) {
@@ -206,8 +207,9 @@ export default function ProjectPage() {
         throw new Error(err.error || 'Failed to fetch');
       }
       const data = await response.json();
-      await addCapture(projectId, url, data.title, data.body, data.author, data.images || [], data.metadata || {});
+      await addCapture(projectId, url, data.title, data.body, data.author, data.images || [], data.metadata || {}, quickNote.trim());
       setOptimisticUrl(null);
+      setQuickNote('');
       await loadData();
       showToast(project ? `Captured to ${project.name}` : 'Captured');
     } catch (e) {
@@ -872,6 +874,28 @@ export default function ProjectPage() {
         </div>
       )}
 
+      {/* ── Context for Claude — the thinking space ── */}
+      <div className="px-5 mb-5">
+        <div className="rounded-2xl overflow-hidden context-note-input" style={{ background: 'rgba(232, 255, 71, 0.04)', border: '1px solid rgba(232, 255, 71, 0.15)', transition: 'border-color 0.2s, box-shadow 0.2s' }}>
+          <div className="flex items-center gap-2 px-4 pt-3.5 pb-1">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" style={{ color: 'var(--accent)', flexShrink: 0 }}>
+              <path d="M15.232 5.232l3.536 3.536M9 13l-2 2v3h3l9-9a2.5 2.5 0 00-3.536-3.536L9 13z" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+            <p className="text-[11px] font-semibold tracking-wide uppercase" style={{ color: 'var(--accent)' }}>Context for Claude</p>
+          </div>
+          <div className="px-4 pb-4 pt-1">
+            <textarea
+              value={quickNote}
+              onChange={(e) => setQuickNote(e.target.value)}
+              placeholder="Why are you saving this? What should Claude focus on?"
+              rows={2}
+              className="w-full text-sm outline-none resize-none"
+              style={{ background: 'transparent', border: 'none', color: 'var(--text-primary)', lineHeight: 1.7, padding: 0 }}
+            />
+          </div>
+        </div>
+      </div>
+
       {/* ── URL Input ── */}
       <div className="px-5 mb-4">
         <div className="flex gap-2">
@@ -1187,17 +1211,14 @@ export default function ProjectPage() {
                           value={editNote}
                           onChange={(e) => setEditNote(e.target.value)}
                           onClick={(e) => e.stopPropagation()}
-                          placeholder="Context for Claude..."
+                          placeholder="Why are you saving this? What should Claude focus on?"
                           rows={2}
-                          className="w-full mt-2 px-2 py-1.5 rounded-lg text-[11px] outline-none resize-none"
-                          style={{ background: 'var(--bg)', border: '1px solid var(--border)', color: 'var(--text-primary)', lineHeight: 1.5 }}
+                          className="w-full mt-2.5 px-3 py-2 rounded-lg text-[12px] outline-none resize-none"
+                          style={{ background: 'rgba(232, 255, 71, 0.04)', border: '1px solid rgba(232, 255, 71, 0.2)', color: 'var(--text-primary)', lineHeight: 1.5 }}
                         />
                       ) : capture.note ? (
-                        <div className="flex items-center gap-1.5 mt-2">
-                          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" className="flex-shrink-0" style={{ color: 'var(--text-tertiary)', opacity: 0.6 }}>
-                            <path d="M15.232 5.232l3.536 3.536M9 13l-2 2v3h3l9-9a2.5 2.5 0 00-3.536-3.536L9 13z" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-                          </svg>
-                          <span className="text-[10px] truncate" style={{ color: 'var(--text-tertiary)', opacity: 0.7 }}>{truncate(capture.note, 60)}</span>
+                        <div className="mt-2.5 pl-3 py-1.5" style={{ borderLeft: '2px solid rgba(232, 255, 71, 0.3)' }}>
+                          <span className="text-[11px] line-clamp-2" style={{ color: 'var(--text-secondary)', lineHeight: 1.5, fontStyle: 'italic' }}>{decodeEntities(truncate(capture.note, 80))}</span>
                         </div>
                       ) : null}
                     </div>

@@ -44,17 +44,6 @@ body {
   letter-spacing: -0.02em;
 }
 
-.header-badge {
-  font-size: 10px;
-  font-weight: 600;
-  padding: 2px 6px;
-  border-radius: 6px;
-  background: var(--accent-dim);
-  color: var(--accent);
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-}
-
 /* States */
 .state {
   display: none;
@@ -176,13 +165,25 @@ select option {
 
 textarea {
   resize: none;
-  min-height: 60px;
-  line-height: 1.5;
-  border-color: rgba(232, 255, 71, 0.3);
+  min-height: 80px;
+  line-height: 1.6;
+  border-color: rgba(232, 255, 71, 0.25);
+  background: rgba(232, 255, 71, 0.03);
+  font-size: 14px;
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+textarea:focus {
+  border-color: rgba(232, 255, 71, 0.4);
+  box-shadow: 0 0 0 3px rgba(232, 255, 71, 0.06), 0 0 16px rgba(232, 255, 71, 0.04);
 }
 
 textarea::placeholder {
   color: var(--text-tertiary);
+}
+
+.context-label {
+  color: var(--accent) !important;
 }
 
 /* Duplicate warning */
