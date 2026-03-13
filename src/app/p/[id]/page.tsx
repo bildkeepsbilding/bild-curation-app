@@ -6,6 +6,7 @@ import {
   getSharedProject,
   getSharedProjectCaptures,
   getUniqueContentTag,
+  decodeEntities,
   type Project,
   type Capture,
   type Platform,
@@ -50,7 +51,6 @@ export default function SharedProjectPage() {
   const [loading, setLoading] = useState(true);
   const [notFound, setNotFound] = useState(false);
   const [activeFilter, setActiveFilter] = useState<Platform | 'all'>('all');
-  const [viewing, setViewing] = useState<Capture | null>(null);
 
   const loadData = useCallback(async () => {
     try {
@@ -111,41 +111,6 @@ export default function SharedProjectPage() {
       .replace(/^\s*>\s?/gm, '')
       .replace(/\n{3,}/g, '\n\n')
       .trim();
-  }
-
-  function renderMarkdownLine(line: string, key: string): React.ReactNode {
-    function renderInline(text: string): React.ReactNode[] {
-      const parts: React.ReactNode[] = [];
-      const regex = /(\*\*(.+?)\*\*)|(`([^`]+)`)|(\[([^\]]+)\]\(([^)]+)\))/g;
-      let lastIndex = 0;
-      let match;
-      let partKey = 0;
-      while ((match = regex.exec(text)) !== null) {
-        if (match.index > lastIndex) parts.push(text.slice(lastIndex, match.index));
-        if (match[1]) parts.push(<strong key={partKey++} style={{ color: 'var(--text-primary)', fontWeight: 600 }}>{match[2]}</strong>);
-        else if (match[3]) parts.push(<code key={partKey++} className="font-mono text-[0.9em] px-1.5 py-0.5 rounded" style={{ background: 'var(--bg)', color: 'var(--accent)' }}>{match[4]}</code>);
-        else if (match[5]) parts.push(<a key={partKey++} href={match[7]} target="_blank" rel="noopener noreferrer" style={{ color: 'var(--accent)', textDecoration: 'underline' }}>{match[6]}</a>);
-        lastIndex = match.index + match[0].length;
-      }
-      if (lastIndex < text.length) parts.push(text.slice(lastIndex));
-      return parts;
-    }
-
-    const headerMatch = line.match(/^(#{1,6})\s+(.*)/);
-    if (headerMatch) {
-      const level = headerMatch[1].length;
-      const sizes = ['text-xl', 'text-lg', 'text-base', 'text-sm', 'text-sm', 'text-sm'];
-      return <div key={key} className={`${sizes[level - 1]} font-semibold mt-4 mb-2`} style={{ color: 'var(--text-primary)' }}>{renderInline(headerMatch[2])}</div>;
-    }
-    if (line.match(/^\s*[-*+]\s+/)) {
-      return <div key={key} className="flex gap-2 ml-2 mb-1"><span style={{ color: 'var(--text-tertiary)' }}>&#x2022;</span><span>{renderInline(line.replace(/^\s*[-*+]\s+/, ''))}</span></div>;
-    }
-    if (line.trim() === '') return <div key={key} className="h-3" />;
-    return <p key={key} className="mb-2">{renderInline(line)}</p>;
-  }
-
-  function renderMarkdownBody(text: string): React.ReactNode[] {
-    return text.split('\n').map((line, i) => renderMarkdownLine(line, `line-${i}`));
   }
 
   if (loading) {
@@ -250,11 +215,11 @@ export default function SharedProjectPage() {
               const bodyPreview = cleanBody(capture.body.split('\n---')[0]);
               const contentTag = getUniqueContentTag(capture);
               return (
-                <div
+                <a
                   key={capture.id}
-                  className="capture-card group relative w-full text-left rounded-2xl overflow-hidden transition-all cursor-pointer"
-                  style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border-subtle)' }}
-                  onClick={() => setViewing(capture)}
+                  href={`/p/${projectId}/c/${capture.id}`}
+                  className="capture-card group relative w-full text-left rounded-2xl overflow-hidden transition-all cursor-pointer block"
+                  style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border-subtle)', textDecoration: 'none', color: 'inherit' }}
                 >
                   {/* Hero image or platform gradient fallback */}
                   {hasImage ? (
@@ -331,75 +296,22 @@ export default function SharedProjectPage() {
 
                   <div className="p-4" style={{ marginTop: hasImage ? '-24px' : '-12px', position: 'relative' }}>
                     <h3 className="text-[15px] font-bold mb-1.5 line-clamp-2" style={{ color: 'var(--text-primary)', lineHeight: 1.4 }}>
-                      {capture.title}
+                      {decodeEntities(capture.title)}
                     </h3>
                     <p className="text-xs mb-3 line-clamp-2" style={{ color: 'var(--text-tertiary)', lineHeight: 1.5 }}>
-                      {truncate(bodyPreview, 120)}
+                      {decodeEntities(truncate(bodyPreview, 120))}
                     </p>
                     <div className="flex items-center justify-between">
                       <span className="text-[11px] truncate" style={{ color: 'var(--text-tertiary)', maxWidth: '60%' }}>{capture.author}</span>
                       <span className="text-[10px] font-mono" style={{ color: 'var(--text-tertiary)', opacity: 0.6 }}>{formatTime(capture.createdAt)}</span>
                     </div>
                   </div>
-                </div>
+                </a>
               );
             })}
           </div>
         )}
       </div>
-
-      {/* Detail View Modal */}
-      {viewing && (
-        <div
-          className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto"
-          style={{ background: 'rgba(0,0,0,0.7)', backdropFilter: 'blur(4px)' }}
-          onClick={(e) => { if (e.target === e.currentTarget) setViewing(null); }}
-        >
-          <div className="w-full max-w-2xl mx-4 my-8 rounded-2xl overflow-hidden animate-fade-up" style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border)' }}>
-            {/* Header */}
-            <div className="flex items-center justify-between px-5 py-4" style={{ borderBottom: '1px solid var(--border-subtle)' }}>
-              <div className="flex items-center gap-2 min-w-0">
-                <span className="px-2 py-0.5 rounded-md text-[10px] font-semibold flex-shrink-0" style={{ background: PLATFORM_LABELS[viewing.platform]?.color + '20', color: PLATFORM_LABELS[viewing.platform]?.color }}>
-                  {PLATFORM_LABELS[viewing.platform]?.label}
-                </span>
-                <span className="text-xs truncate" style={{ color: 'var(--text-tertiary)' }}>{viewing.author}</span>
-              </div>
-              <button onClick={() => setViewing(null)} className="p-1 rounded-lg flex-shrink-0" style={{ color: 'var(--text-tertiary)' }}>
-                <svg width="18" height="18" viewBox="0 0 16 16" fill="none"><path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" /></svg>
-              </button>
-            </div>
-
-            {/* Hero image */}
-            {viewing.images && viewing.images.length > 0 && (
-              <div className="relative w-full" style={{ maxHeight: '300px', overflow: 'hidden' }}>
-                <img src={viewing.images[0]} alt="" className="w-full object-cover" referrerPolicy="no-referrer" />
-              </div>
-            )}
-
-            {/* Content */}
-            <div className="px-5 py-4">
-              <h2 className="text-lg font-bold mb-3" style={{ color: 'var(--text-primary)', lineHeight: 1.3 }}>{viewing.title}</h2>
-              <div className="text-sm leading-relaxed" style={{ color: 'var(--text-secondary)' }}>
-                {renderMarkdownBody(viewing.body)}
-              </div>
-
-              {viewing.images && viewing.images.length > 1 && (
-                <div className="mt-4 grid grid-cols-2 gap-2">
-                  {viewing.images.slice(1).map((img, i) => (
-                    <img key={i} src={img} alt="" className="w-full rounded-lg object-cover" style={{ maxHeight: '200px' }} referrerPolicy="no-referrer" />
-                  ))}
-                </div>
-              )}
-            </div>
-
-            {/* Footer with source link */}
-            <div className="px-5 py-3 flex items-center justify-between" style={{ borderTop: '1px solid var(--border-subtle)' }}>
-              <span className="text-[10px] font-mono" style={{ color: 'var(--text-tertiary)' }}>{formatTime(viewing.createdAt)}</span>
-              <a href={viewing.url} target="_blank" rel="noopener noreferrer" className="text-xs underline" style={{ color: 'var(--accent)' }}>View source</a>
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* Made with Sift footer */}
       <footer className="py-10 mt-8" style={{ borderTop: '1px solid var(--border-subtle)' }}>

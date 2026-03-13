@@ -16,6 +16,7 @@ import {
   reorderCapture,
   findCaptureByUrl,
   getUniqueContentTag,
+  decodeEntities,
   type Project,
   type Capture,
   type Platform,
@@ -620,7 +621,7 @@ export default function ProjectPage() {
             <div className="mx-auto px-5 py-6" style={{ maxWidth: '720px' }}>
               {/* Title */}
               <h1 className="font-bold mb-4" style={{ color: 'var(--text-primary)', fontSize: '24px', lineHeight: 1.3 }}>
-                {viewing.title}
+                {decodeEntities(viewing.title)}
               </h1>
 
               {/* Metadata bar */}
@@ -1167,12 +1168,12 @@ export default function ProjectPage() {
                         />
                       ) : (
                         <h3 className="text-[15px] font-bold mb-1.5 line-clamp-2" style={{ color: 'var(--text-primary)', lineHeight: 1.4 }}>
-                          {capture.title}
+                          {decodeEntities(capture.title)}
                         </h3>
                       )}
 
                       <p className="text-xs mb-3 line-clamp-2" style={{ color: 'var(--text-tertiary)', lineHeight: 1.5 }}>
-                        {truncate(bodyPreview, 120)}
+                        {decodeEntities(truncate(bodyPreview, 120))}
                       </p>
 
                       <div className="flex items-center justify-between">
