@@ -626,4 +626,46 @@ export async function getSharedProjectCaptures(projectId: string): Promise<Captu
   return (data || []).map(rowToCapture);
 }
 
+export async function getSharedCapture(captureId: string, projectId: string): Promise<Capture | null> {
+  const supabase = createClient();
+
+  // Verify the project is shared
+  const { data: project } = await supabase
+    .from('projects')
+    .select('id')
+    .eq('id', projectId)
+    .eq('share', true)
+    .single();
+
+  if (!project) return null;
+
+  const { data, error } = await supabase
+    .from('captures')
+    .select('*')
+    .eq('id', captureId)
+    .eq('project_id', projectId)
+    .single();
+
+  if (error) {
+    if (error.code === 'PGRST116') return null;
+    throw error;
+  }
+  return rowToCapture(data);
+}
+
+// --- HTML entity decoding ---
+
+export function decodeEntities(text: string): string {
+  if (!text) return text;
+  return text
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&#x27;/g, "'")
+    .replace(/&#x2F;/g, '/')
+    .replace(/&apos;/g, "'");
+}
+
 export { detectPlatform };

@@ -12,6 +12,7 @@ import {
   moveCapture,
   copyCapture,
   getUniqueContentTag,
+  decodeEntities,
   type Project,
   type Capture,
   type Platform,
@@ -499,12 +500,12 @@ export default function AllCapturesPage() {
                         />
                       ) : (
                         <h3 className="text-[15px] font-bold mb-1.5 line-clamp-2" style={{ color: 'var(--text-primary)', lineHeight: 1.4 }}>
-                          {capture.title}
+                          {decodeEntities(capture.title)}
                         </h3>
                       )}
 
                       <p className="text-xs mb-3 line-clamp-2" style={{ color: 'var(--text-tertiary)', lineHeight: 1.5 }}>
-                        {truncate(bodyPreview, 120)}
+                        {decodeEntities(truncate(bodyPreview, 120))}
                       </p>
 
                       <div className="flex items-center justify-between">
@@ -579,7 +580,7 @@ export default function AllCapturesPage() {
 
             {/* Content */}
             <div className="px-5 py-4">
-              <h2 className="text-lg font-bold mb-3" style={{ color: 'var(--text-primary)', lineHeight: 1.3 }}>{viewing.title}</h2>
+              <h2 className="text-lg font-bold mb-3" style={{ color: 'var(--text-primary)', lineHeight: 1.3 }}>{decodeEntities(viewing.title)}</h2>
               <div className="text-sm leading-relaxed" style={{ color: 'var(--text-secondary)' }}>
                 {renderMarkdownBody(viewing.body)}
               </div>

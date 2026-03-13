@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
-import { getProjects, getCaptures, getAllCaptures, getProjectMap, createProject, deleteProject, ensureInbox, addCapture, findCaptureByUrl, getUniqueContentTag, type Project, type Capture } from '@/lib/db';
+import { getProjects, getCaptures, getAllCaptures, getProjectMap, createProject, deleteProject, ensureInbox, addCapture, findCaptureByUrl, getUniqueContentTag, decodeEntities, type Project, type Capture } from '@/lib/db';
 import UserMenu from '@/components/UserMenu';
 
 interface ProjectWithCover extends Project {
@@ -660,7 +660,7 @@ export default function Home() {
                               </span>
                             </div>
                             <h3 className="text-[15px] font-bold mb-1.5 line-clamp-2" style={{ color: 'var(--text-primary)', lineHeight: 1.4 }}>
-                              {capture.title}
+                              {decodeEntities(capture.title)}
                             </h3>
                             <div className="flex items-center justify-between">
                               <span className="text-[11px] truncate" style={{ color: 'var(--text-tertiary)', maxWidth: '60%' }}>{capture.author}</span>
