@@ -102,10 +102,12 @@ export async function createProject(name: string, brief: string = ''): Promise<P
 
 export async function getProjects(): Promise<Project[]> {
   const supabase = createClient();
+  const userId = await getUserId();
 
   const { data, error } = await supabase
     .from('projects')
     .select('*, captures(count)')
+    .eq('user_id', userId)
     .order('updated_at', { ascending: false });
 
   if (error) throw error;
@@ -118,11 +120,13 @@ export async function getProjects(): Promise<Project[]> {
 
 export async function getProject(id: string): Promise<Project | null> {
   const supabase = createClient();
+  const userId = await getUserId();
 
   const { data, error } = await supabase
     .from('projects')
     .select('*, captures(count)')
     .eq('id', id)
+    .eq('user_id', userId)
     .single();
 
   if (error) {
@@ -136,6 +140,7 @@ export async function getProject(id: string): Promise<Project | null> {
 
 export async function updateProject(id: string, updates: Partial<Project>): Promise<void> {
   const supabase = createClient();
+  const userId = await getUserId();
 
   // Check if it's the Unsorted project — prevent renaming
   const project = await getProject(id);
@@ -153,13 +158,15 @@ export async function updateProject(id: string, updates: Partial<Project>): Prom
   const { error } = await supabase
     .from('projects')
     .update(dbUpdates)
-    .eq('id', id);
+    .eq('id', id)
+    .eq('user_id', userId);
 
   if (error) throw error;
 }
 
 export async function deleteProject(id: string): Promise<void> {
   const supabase = createClient();
+  const userId = await getUserId();
 
   // Don't delete Unsorted
   const project = await getProject(id);
@@ -169,7 +176,8 @@ export async function deleteProject(id: string): Promise<void> {
   const { error } = await supabase
     .from('projects')
     .delete()
-    .eq('id', id);
+    .eq('id', id)
+    .eq('user_id', userId);
 
   if (error) throw error;
 }
@@ -178,10 +186,11 @@ export async function ensureInbox(): Promise<Project> {
   const supabase = createClient();
   const userId = await getUserId();
 
-  // Check for existing Unsorted project
+  // Check for existing Unsorted project (scoped to current user)
   const { data: existing } = await supabase
     .from('projects')
     .select('*, captures(count)')
+    .eq('user_id', userId)
     .eq('is_inbox', true)
     .single();
 
@@ -260,11 +269,13 @@ export async function addCapture(
 
 export async function getCaptures(projectId: string): Promise<Capture[]> {
   const supabase = createClient();
+  const userId = await getUserId();
 
   const { data, error } = await supabase
     .from('captures')
     .select('*')
     .eq('project_id', projectId)
+    .eq('user_id', userId)
     .order('sort_order', { ascending: true })
     .order('created_at', { ascending: false });
 
@@ -274,11 +285,13 @@ export async function getCaptures(projectId: string): Promise<Capture[]> {
 
 export async function getCapture(id: string): Promise<Capture | null> {
   const supabase = createClient();
+  const userId = await getUserId();
 
   const { data, error } = await supabase
     .from('captures')
     .select('*')
     .eq('id', id)
+    .eq('user_id', userId)
     .single();
 
   if (error) {
@@ -290,6 +303,7 @@ export async function getCapture(id: string): Promise<Capture | null> {
 
 export async function updateCapture(id: string, updates: Partial<Capture>): Promise<void> {
   const supabase = createClient();
+  const userId = await getUserId();
 
   // Map interface fields to DB column names
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -311,18 +325,21 @@ export async function updateCapture(id: string, updates: Partial<Capture>): Prom
   const { error } = await supabase
     .from('captures')
     .update(dbUpdates)
-    .eq('id', id);
+    .eq('id', id)
+    .eq('user_id', userId);
 
   if (error) throw error;
 }
 
 export async function deleteCapture(id: string, projectId: string): Promise<void> {
   const supabase = createClient();
+  const userId = await getUserId();
 
   const { error } = await supabase
     .from('captures')
     .delete()
-    .eq('id', id);
+    .eq('id', id)
+    .eq('user_id', userId);
 
   if (error) throw error;
 
@@ -335,11 +352,13 @@ export async function deleteCapture(id: string, projectId: string): Promise<void
 
 export async function moveCapture(captureId: string, fromProjectId: string, toProjectId: string): Promise<void> {
   const supabase = createClient();
+  const userId = await getUserId();
 
   const { error } = await supabase
     .from('captures')
     .update({ project_id: toProjectId })
-    .eq('id', captureId);
+    .eq('id', captureId)
+    .eq('user_id', userId);
 
   if (error) throw error;
 
@@ -367,10 +386,12 @@ export async function copyCapture(captureId: string, toProjectId: string): Promi
 
 export async function getAllCaptures(): Promise<Capture[]> {
   const supabase = createClient();
+  const userId = await getUserId();
 
   const { data, error } = await supabase
     .from('captures')
     .select('*')
+    .eq('user_id', userId)
     .order('created_at', { ascending: false });
 
   if (error) throw error;
