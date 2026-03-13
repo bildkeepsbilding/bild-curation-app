@@ -144,32 +144,37 @@ export default function SharedProjectPage() {
 
   return (
     <main className="min-h-dvh safe-top safe-bottom">
-      {/* Header */}
-      <header className="px-5 pt-10 pb-6 max-w-5xl mx-auto">
-        <div className="flex items-center gap-2 mb-4">
-          <div className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ background: 'var(--accent)', color: 'var(--bg)' }}>
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-5 14H7v-2h7v2zm3-4H7v-2h10v2zm0-4H7V7h10v2z" fill="currentColor"/></svg>
+      {/* Header — curated exhibition feel */}
+      <header className="px-5 pt-14 pb-8 max-w-5xl mx-auto">
+        <div className="flex items-center gap-2.5 mb-6">
+          <div className="w-7 h-7 rounded-md flex items-center justify-center" style={{ background: 'var(--accent)', color: 'var(--bg)' }}>
+            <span className="text-xs font-bold">S</span>
           </div>
-          <span className="text-xs font-semibold tracking-wide uppercase" style={{ color: 'var(--text-tertiary)' }}>
-            Shared Collection
+          <span className="text-[11px] font-semibold tracking-widest uppercase" style={{ color: 'var(--text-tertiary)' }}>
+            Curated Collection
           </span>
         </div>
-        <h1 className="text-3xl font-bold tracking-tight mb-3" style={{ color: 'var(--text-primary)', lineHeight: 1.2 }}>
+        <h1 className="font-bold tracking-tight mb-4" style={{ color: 'var(--text-primary)', fontSize: '36px', lineHeight: 1.15 }}>
           {project.name}
         </h1>
         {project.brief && (
-          <p className="text-base leading-relaxed" style={{ color: 'var(--text-secondary)', maxWidth: '640px' }}>
+          <p className="text-base leading-relaxed mb-5" style={{ color: 'var(--text-secondary)', maxWidth: '640px', lineHeight: 1.7 }}>
             {project.brief}
           </p>
         )}
-        <div className="flex items-center gap-3 mt-4">
+        <div className="flex flex-wrap items-center gap-3">
           <span className="text-sm font-mono" style={{ color: 'var(--text-tertiary)' }}>
             {captures.length} capture{captures.length !== 1 ? 's' : ''}
           </span>
-          <span style={{ color: 'var(--border)' }}>·</span>
-          <span className="text-sm" style={{ color: 'var(--text-tertiary)' }}>
-            {[...new Set(captures.map(c => PLATFORM_LABELS[c.platform]?.label).filter(Boolean))].join(', ')}
-          </span>
+          {[...new Set(captures.map(c => c.platform))].map(p => {
+            const pl = PLATFORM_LABELS[p];
+            if (!pl) return null;
+            return (
+              <span key={p} className="text-[11px] px-2.5 py-0.5 rounded-full font-medium" style={{ background: pl.color + '15', color: pl.color }}>
+                {pl.label}
+              </span>
+            );
+          })}
         </div>
       </header>
 
@@ -201,8 +206,8 @@ export default function SharedProjectPage() {
         </div>
       )}
 
-      {/* Captures Grid */}
-      <div className="px-5 pb-8 max-w-5xl mx-auto">
+      {/* Captures Grid — gallery spacing */}
+      <div className="px-5 pb-12 max-w-5xl mx-auto">
         {filteredCaptures.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-16 text-center">
             <p className="text-sm" style={{ color: 'var(--text-tertiary)' }}>No captures to show</p>
@@ -301,7 +306,12 @@ export default function SharedProjectPage() {
                     <p className="text-xs mb-3 line-clamp-2" style={{ color: 'var(--text-tertiary)', lineHeight: 1.5 }}>
                       {decodeEntities(truncate(bodyPreview, 120))}
                     </p>
-                    <div className="flex items-center justify-between">
+                    {capture.note && (
+                      <div className="mt-2 pl-3 py-1.5" style={{ borderLeft: '2px solid rgba(232, 255, 71, 0.3)' }}>
+                        <span className="text-[11px] line-clamp-2" style={{ color: 'var(--text-secondary)', lineHeight: 1.5, fontStyle: 'italic' }}>{decodeEntities(truncate(capture.note, 80))}</span>
+                      </div>
+                    )}
+                    <div className="flex items-center justify-between mt-2">
                       <span className="text-[11px] truncate" style={{ color: 'var(--text-tertiary)', maxWidth: '60%' }}>{capture.author}</span>
                       <span className="text-[10px] font-mono" style={{ color: 'var(--text-tertiary)', opacity: 0.6 }}>{formatTime(capture.createdAt)}</span>
                     </div>
@@ -313,21 +323,21 @@ export default function SharedProjectPage() {
         )}
       </div>
 
-      {/* Made with Sift footer */}
-      <footer className="py-10 mt-8" style={{ borderTop: '1px solid var(--border-subtle)' }}>
+      {/* Made with Sift — curator's signature */}
+      <footer className="py-14 mt-12" style={{ borderTop: '1px solid var(--border-subtle)' }}>
         <div className="max-w-5xl mx-auto px-5 flex flex-col items-center text-center">
-          <div className="flex items-center gap-2 mb-3">
-            <div className="w-6 h-6 rounded-md flex items-center justify-center" style={{ background: 'var(--accent)', color: 'var(--bg)' }}>
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="none"><path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-5 14H7v-2h7v2zm3-4H7v-2h10v2zm0-4H7V7h10v2z" fill="currentColor"/></svg>
-            </div>
-            <span className="text-sm font-semibold" style={{ color: 'var(--text-secondary)' }}>Made with Sift</span>
+          <div className="flex items-center gap-2 mb-4">
+            <span className="text-[13px] font-medium tracking-wide" style={{ color: 'var(--text-tertiary)' }}>
+              Curated with
+            </span>
+            <span className="text-[13px] font-bold" style={{ color: 'var(--accent)' }}>Sift</span>
           </div>
-          <p className="text-xs mb-4" style={{ color: 'var(--text-tertiary)', maxWidth: '320px' }}>
-            Curate content from across the web. Save, organize, and package for Claude.
+          <p className="text-xs mb-6" style={{ color: 'var(--text-tertiary)', maxWidth: '320px', lineHeight: 1.6 }}>
+            Capture, organize, and package knowledge for Claude.
           </p>
           <a
             href="/login"
-            className="inline-flex items-center gap-1.5 px-5 py-2.5 rounded-full text-sm font-semibold transition-all hover:scale-105"
+            className="inline-flex items-center gap-1.5 px-6 py-2.5 rounded-full text-sm font-semibold transition-all hover:scale-105"
             style={{ background: 'var(--accent)', color: 'var(--bg)' }}
           >
             Start curating
