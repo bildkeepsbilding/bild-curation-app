@@ -253,17 +253,17 @@ export default function SharedCapturePage() {
         </div>
 
         {/* Title */}
-        <h1 className="font-bold mb-6" style={{ color: 'var(--text-primary)', fontSize: '28px', lineHeight: 1.25 }}>
+        <h1 className="font-bold mb-8" style={{ color: 'var(--text-primary)', fontSize: '32px', lineHeight: 1.2, letterSpacing: '-0.02em' }}>
           {decodeEntities(capture.title)}
         </h1>
 
         {/* Full body */}
         {capture.body?.includes('[image:') ? (
-          <div style={{ fontSize: '16px', lineHeight: 1.75, color: 'var(--text-secondary)' }}>
+          <div style={{ fontSize: '17px', lineHeight: 1.8, color: 'var(--text-secondary)' }}>
             {capture.body.split(/(\[image:[^\]]+\])/).map((part, i) => {
               const imgMatch = part.match(/^\[image:(.+)\]$/);
               if (imgMatch) {
-                return <img key={i} src={imgMatch[1]} alt="Article image" className="w-full rounded-xl my-6" style={{ border: '1px solid var(--border-subtle)' }} loading="lazy" referrerPolicy="no-referrer" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />;
+                return <img key={i} src={imgMatch[1]} alt="Article image" className="w-full rounded-xl my-8" style={{ border: '1px solid var(--border-subtle)' }} loading="lazy" referrerPolicy="no-referrer" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />;
               }
               return part ? <div key={i}>{renderMarkdownBody(part)}</div> : null;
             })}
@@ -271,13 +271,13 @@ export default function SharedCapturePage() {
         ) : (
           <>
             {capture.images && capture.images.length > 1 && (
-              <div className="mb-6 space-y-3">
+              <div className="mb-8 space-y-4">
                 {capture.images.slice(1).map((img, i) => (
                   <img key={i} src={img} alt={`Image ${i + 2}`} className="w-full rounded-xl" style={{ border: '1px solid var(--border-subtle)' }} loading="lazy" referrerPolicy="no-referrer" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
                 ))}
               </div>
             )}
-            <div style={{ fontSize: '16px', lineHeight: 1.75, color: 'var(--text-secondary)' }}>
+            <div style={{ fontSize: '17px', lineHeight: 1.8, color: 'var(--text-secondary)' }}>
               {renderMarkdownBody(capture.body)}
             </div>
           </>
@@ -289,17 +289,12 @@ export default function SharedCapturePage() {
           <svg width="12" height="12" viewBox="0 0 16 16" fill="none"><path d="M6 4h6v6M12 4L4 12" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" /></svg>
         </a>
 
-        {/* Context for Claude note */}
+        {/* Curator's annotation */}
         {capture.note && (
-          <div className="mt-8 mb-4 rounded-2xl overflow-hidden" style={{ border: '1px solid var(--accent)40', background: 'var(--accent-dim)' }}>
-            <div className="flex items-center gap-2 px-4 pt-3 pb-2">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" style={{ color: 'var(--accent)', flexShrink: 0 }}>
-                <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z" fill="currentColor" />
-              </svg>
-              <p className="text-xs font-semibold tracking-wide uppercase" style={{ color: 'var(--accent)' }}>Context for Claude</p>
-            </div>
-            <div className="px-4 pb-4">
-              <p className="text-sm" style={{ color: 'var(--text-primary)', lineHeight: 1.6 }}>{decodeEntities(capture.note)}</p>
+          <div className="mt-10 mb-6">
+            <div className="pl-5 py-1" style={{ borderLeft: '3px solid rgba(232, 255, 71, 0.4)' }}>
+              <p className="text-[11px] font-semibold tracking-widest uppercase mb-2" style={{ color: 'var(--accent)' }}>Curator&apos;s note</p>
+              <p className="text-[15px]" style={{ color: 'var(--text-primary)', lineHeight: 1.7, fontStyle: 'italic' }}>{decodeEntities(capture.note)}</p>
             </div>
           </div>
         )}
@@ -327,21 +322,21 @@ export default function SharedCapturePage() {
         </div>
       </div>
 
-      {/* Made with Sift footer */}
-      <footer className="py-10 mt-4" style={{ borderTop: '1px solid var(--border-subtle)' }}>
+      {/* Made with Sift — curator's signature */}
+      <footer className="py-14 mt-8" style={{ borderTop: '1px solid var(--border-subtle)' }}>
         <div className="max-w-5xl mx-auto px-5 flex flex-col items-center text-center">
-          <div className="flex items-center gap-2 mb-3">
-            <div className="w-6 h-6 rounded-md flex items-center justify-center" style={{ background: 'var(--accent)', color: 'var(--bg)' }}>
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="none"><path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-5 14H7v-2h7v2zm3-4H7v-2h10v2zm0-4H7V7h10v2z" fill="currentColor"/></svg>
-            </div>
-            <span className="text-sm font-semibold" style={{ color: 'var(--text-secondary)' }}>Made with Sift</span>
+          <div className="flex items-center gap-2 mb-4">
+            <span className="text-[13px] font-medium tracking-wide" style={{ color: 'var(--text-tertiary)' }}>
+              Curated with
+            </span>
+            <span className="text-[13px] font-bold" style={{ color: 'var(--accent)' }}>Sift</span>
           </div>
-          <p className="text-xs mb-4" style={{ color: 'var(--text-tertiary)', maxWidth: '320px' }}>
-            Curate content from across the web. Save, organize, and package for Claude.
+          <p className="text-xs mb-6" style={{ color: 'var(--text-tertiary)', maxWidth: '320px', lineHeight: 1.6 }}>
+            Capture, organize, and package knowledge for Claude.
           </p>
           <a
             href="/login"
-            className="inline-flex items-center gap-1.5 px-5 py-2.5 rounded-full text-sm font-semibold transition-all hover:scale-105"
+            className="inline-flex items-center gap-1.5 px-6 py-2.5 rounded-full text-sm font-semibold transition-all hover:scale-105"
             style={{ background: 'var(--accent)', color: 'var(--bg)' }}
           >
             Start curating
