@@ -561,6 +561,24 @@ async function fetchRedditOAuth(url: string): Promise<RedditJsonResult> {
   return parseRedditJsonResponse(data);
 }
 
+// ── Strategy Cloudflare Worker (Bypasses Vercel IP blocks completely) ──
+async function fetchRedditCloudflare(url: string): Promise<RedditJsonResult> {
+  const proxyUrl = new URL('https://sift-reddit-proxy.silent-snowflake-2f58.workers.dev/');
+  proxyUrl.searchParams.set('url', url);
+
+  const response = await fetch(proxyUrl.toString(), {
+    headers: { 'User-Agent': 'BildCurationApp/1.0' },
+  });
+
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(`Cloudflare Proxy returned ${response.status}: ${text}`);
+  }
+
+  const data = await response.json();
+  return parseRedditJsonResponse(data);
+}
+
 // Strategy 1: www.reddit.com .json endpoint
 async function fetchRedditJsonWww(url: string, attempt = 0): Promise<RedditJsonResult> {
   let cleanUrl = url.split('?')[0];
@@ -670,23 +688,38 @@ async function fetchReddit(url: string) {
   let postData!: RedditPost;
   let commentsData: Array<{ kind: string; data: RedditComment & { replies?: { data?: { children?: Array<{ kind: string; data: RedditComment }> } } } }> = [];
 
-  // ── Strategy 0: Reddit OAuth API (Priority — works on Vercel, ignores IP blocks) ──
-  const hasOAuth = !!(process.env.REDDIT_CLIENT_ID && process.env.REDDIT_CLIENT_SECRET);
-  if (hasOAuth) {
-    try {
-      const result = await fetchRedditOAuth(url);
-      postData = result.postData;
-      commentsData = result.commentsData;
-      extractionMethod = 'oauth.reddit.com';
-      console.log(`[Reddit] OAuth strategy succeeded`);
-    } catch (err0) {
-      const msg0 = err0 instanceof Error ? err0.message : 'unknown';
-      errors.push(`OAuth: ${msg0}`);
-      console.warn(`[Reddit] OAuth strategy failed: ${msg0}`);
+  // ── Strategy 0: Cloudflare Proxy (Priority — bypasses IP blocks infinitely) ──
+  try {
+    const result = await fetchRedditCloudflare(url);
+    postData = result.postData;
+    commentsData = result.commentsData;
+    extractionMethod = 'cloudflare-proxy';
+    console.log(`[Reddit] Cloudflare Proxy strategy succeeded`);
+  } catch (errProxy) {
+    const msgProxy = errProxy instanceof Error ? errProxy.message : 'unknown';
+    errors.push(`Cloudflare Proxy: ${msgProxy}`);
+    console.warn(`[Reddit] Cloudflare Proxy strategy failed: ${msgProxy}`);
+  }
+
+  // ── Strategy 1: Reddit OAuth API (Backup authenticated fetch) ──
+  if (!extractionMethod) {
+    const hasOAuth = !!(process.env.REDDIT_CLIENT_ID && process.env.REDDIT_CLIENT_SECRET);
+    if (hasOAuth) {
+      try {
+        const result = await fetchRedditOAuth(url);
+        postData = result.postData;
+        commentsData = result.commentsData;
+        extractionMethod = 'oauth.reddit.com';
+        console.log(`[Reddit] OAuth strategy succeeded`);
+      } catch (err0) {
+        const msg0 = err0 instanceof Error ? err0.message : 'unknown';
+        errors.push(`OAuth: ${msg0}`);
+        console.warn(`[Reddit] OAuth strategy failed: ${msg0}`);
+      }
     }
   }
 
-  // ── Strategy 1: Reddit Search API (works on Vercel — not IP-blocked) ──
+  // ── Strategy 2: Reddit Search API (works on Vercel — not IP-blocked) ──
   if (!extractionMethod) {
     try {
       const result = await fetchRedditViaSearch(url);
