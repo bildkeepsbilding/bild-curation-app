@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 
-export const maxDuration = 45;
+export const maxDuration = 30;
 
 export async function GET(request: NextRequest) {
   const url = request.nextUrl.searchParams.get('url');
@@ -74,21 +74,23 @@ export async function GET(request: NextRequest) {
     log.push(`Manual fetch failed: ${msg}`);
   }
 
-  // Step 3: Call Apify with Playwright (the actual resolveRedditShareLink logic)
-  log.push('Step 3: Calling Apify website-content-crawler with Playwright');
-  const actorId = 'apify~website-content-crawler';
-  const apiUrl = `https://api.apify.com/v2/acts/${actorId}/run-sync-get-dataset-items?token=${token}&timeout=30`;
+  // Step 3: Call Apify web-scraper (lightweight — just gets final URL after JS redirect)
+  log.push('Step 3: Calling Apify web-scraper for URL resolution');
+  const actorId = 'apify~web-scraper';
+  const apiUrl = `https://api.apify.com/v2/acts/${actorId}/run-sync-get-dataset-items?token=${token}&timeout=15`;
 
   const apifyPayload = {
     startUrls: [{ url }],
-    maxCrawlPages: 1,
-    crawlerType: 'playwright:chrome',
+    pageFunction: `async function pageFunction({ request }) { return { resolvedUrl: request.loadedUrl || request.url }; }`,
+    maxRequestsPerCrawl: 1,
+    proxyConfiguration: { useApifyProxy: true },
+    maxConcurrency: 1,
   };
   result.apifyRequest = { actorId, apiUrl: apiUrl.replace(token, 'REDACTED'), payload: apifyPayload };
 
   try {
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 35000);
+    const timeout = setTimeout(() => controller.abort(), 20000);
     const startTime = Date.now();
 
     const response = await fetch(apiUrl, {
@@ -120,18 +122,16 @@ export async function GET(request: NextRequest) {
 
       if (Array.isArray(data) && data.length > 0) {
         const item = data[0];
-        const resolvedUrl = item.url || item.loadedUrl || '';
-        const canonical = item.metadata?.canonicalUrl || '';
+        const resolvedUrl = item.resolvedUrl || item.url || item.loadedUrl || '';
         result.resolution = {
+          resolvedUrl,
           itemUrl: item.url,
           loadedUrl: item.loadedUrl,
-          canonicalUrl: canonical,
-          resolvedUrl,
+          pageResolvedUrl: item.resolvedUrl,
           hasComments: /\/comments\/[a-z0-9]+/i.test(resolvedUrl),
-          canonicalHasComments: /\/comments\/[a-z0-9]+/i.test(canonical),
-          wouldResolve: /\/comments\/[a-z0-9]+/i.test(resolvedUrl) || /\/comments\/[a-z0-9]+/i.test(canonical),
+          wouldResolve: /\/comments\/[a-z0-9]+/i.test(resolvedUrl),
         };
-        log.push(`Resolution: url=${resolvedUrl}, canonical=${canonical}`);
+        log.push(`Resolution: resolvedUrl=${resolvedUrl}`);
       }
     }
   } catch (e) {
