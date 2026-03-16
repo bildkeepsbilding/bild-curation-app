@@ -82,7 +82,7 @@ export async function GET(request: NextRequest) {
   const apifyPayload = {
     startUrls: [{ url }],
     maxCrawlPages: 1,
-    crawlerType: 'playwright',
+    crawlerType: 'playwright:chrome',
   };
   result.apifyRequest = { actorId, apiUrl: apiUrl.replace(token, 'REDACTED'), payload: apifyPayload };
 

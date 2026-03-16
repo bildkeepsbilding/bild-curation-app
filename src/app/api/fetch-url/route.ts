@@ -1289,7 +1289,7 @@ async function resolveRedditShareLink(url: string): Promise<string | null> {
       body: JSON.stringify({
         startUrls: [{ url }],
         maxCrawlPages: 1,
-        crawlerType: 'playwright', // Full browser — executes Reddit's JS redirects
+        crawlerType: 'playwright:chrome', // Full browser — executes Reddit's JS redirects
       }),
     });
 
