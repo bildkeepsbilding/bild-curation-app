@@ -4,22 +4,6 @@ import { useState, useEffect, Suspense } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { getProjects, addCapture, type Project } from '@/lib/db';
 
-const REDDIT_SHARE_RE = /reddit\.com\/r\/[^/]+\/s\//;
-const REDDIT_COMMENTS_RE = /\/comments\/[a-z0-9]+/i;
-
-async function resolveRedditShareLink(url: string): Promise<{ resolved: string } | { error: string }> {
-  try {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 8000);
-    try {
-      const response = await fetch(url, { method: 'HEAD', redirect: 'follow', signal: controller.signal });
-      const finalUrl = response.url;
-      if (REDDIT_COMMENTS_RE.test(finalUrl)) return { resolved: finalUrl };
-    } catch { /* CORS expected */ } finally { clearTimeout(timeout); }
-    return { error: 'NEEDS_MANUAL_RESOLVE' };
-  } catch { return { error: 'NEEDS_MANUAL_RESOLVE' }; }
-}
-
 function SharePageContent() {
   const searchParams = useSearchParams();
   const router = useRouter();
@@ -68,18 +52,7 @@ function SharePageContent() {
     setSaving(true);
     setError('');
 
-    // Client-side Reddit /s/ share link resolution
-    let resolvedUrl = url.trim();
-    if (REDDIT_SHARE_RE.test(resolvedUrl)) {
-      const result = await resolveRedditShareLink(resolvedUrl);
-      if ('resolved' in result) {
-        resolvedUrl = result.resolved;
-      } else {
-        setSaving(false);
-        setError('Reddit share links need one extra step — open the link in your browser, then copy the full URL from the address bar and paste it here.');
-        return;
-      }
-    }
+    const resolvedUrl = url.trim();
 
     try {
       // Fetch URL metadata
@@ -91,11 +64,6 @@ function SharePageContent() {
 
       if (!response.ok) {
         const err = await response.json();
-        if (err.error === 'REDDIT_SHARE_LINK') {
-          setError('Reddit share links need one extra step — open the link in your browser, then copy the full URL from the address bar and paste it here.');
-          setSaving(false);
-          return;
-        }
         throw new Error(err.error || 'Failed to fetch URL');
       }
 
