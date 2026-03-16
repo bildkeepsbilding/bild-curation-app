@@ -32,12 +32,13 @@ All extractors return the same shape:
 ## Reddit Extraction
 Multi-strategy cascade (tries each in order until one succeeds):
 
-1. **Search API** (`reddit.com/api/info.json`) — Most reliable on Vercel, not IP-blocked
-2. **RSS Feed** (`.rss` endpoint) — No auth needed, includes images and comments
-3. **Reddit OAuth** (`oauth.reddit.com`) — Requires REDDIT_CLIENT_ID + SECRET env vars
-4. **www.reddit.com .json** — Works locally, often blocked on Vercel cloud IPs
-5. **old.reddit.com HTML** — Scrapes the old Reddit interface
-6. **old.reddit.com .json** — Alternative JSON endpoint
+1. **Cloudflare Worker Proxy** (`sift-reddit-proxy`) — Priority. Bypasses Vercel datacenter IP blocks completely by routing the request through Cloudflare edge network.
+2. **Search API** (`reddit.com/api/info.json`) — Works on Vercel, not IP-blocked, but may miss some edge cases.
+3. **RSS Feed** (`.rss` endpoint) — No auth needed, includes images and comments.
+4. **Reddit OAuth** (`oauth.reddit.com`) — Requires REDDIT_CLIENT_ID + SECRET env vars.
+5. **www.reddit.com .json** — Works locally, blocked on Vercel cloud IPs.
+6. **old.reddit.com HTML** — Scrapes the old Reddit interface.
+7. **old.reddit.com .json** — Alternative JSON endpoint.
 
 **Image extraction** is complex — Reddit strips image data in cloud IP responses. The `extractRedditImages()` function checks: gallery metadata, preview images, direct URLs, video thumbnails, crosspost parents, and inline selftext images. If API returns zero images, it falls back to RSS for images.
 
