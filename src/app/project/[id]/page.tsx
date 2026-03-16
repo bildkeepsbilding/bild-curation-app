@@ -24,6 +24,67 @@ import {
 import { exportProjectAsPdf, exportCapturePdf } from '@/lib/pdf-export';
 import UserMenu from '@/components/UserMenu';
 
+// Reddit /s/ share links can't be resolved server-side (Reddit blocks cloud IPs).
+// Resolve them client-side using the user's browser, which has a residential IP.
+const REDDIT_SHARE_RE = /reddit\.com\/r\/[^/]+\/s\//;
+const REDDIT_COMMENTS_RE = /\/comments\/[a-z0-9]+/i;
+
+async function resolveRedditShareLink(url: string): Promise<{ resolved: string } | { error: string }> {
+  try {
+    // Use fetch with redirect: 'follow' — the browser will follow the redirect chain
+    // and response.url will be the final canonical URL
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 8000);
+    try {
+      const response = await fetch(url, {
+        method: 'HEAD',
+        redirect: 'follow',
+        signal: controller.signal,
+      });
+      const finalUrl = response.url;
+      if (REDDIT_COMMENTS_RE.test(finalUrl)) {
+        return { resolved: finalUrl };
+      }
+    } catch {
+      // CORS or network error — expected, try iframe approach
+    } finally {
+      clearTimeout(timeout);
+    }
+
+    // Fallback: open in a hidden iframe and read the URL after redirect
+    // (This may also be blocked by X-Frame-Options, but worth trying)
+    const resolved = await new Promise<string | null>((resolve) => {
+      const iframe = document.createElement('iframe');
+      iframe.style.display = 'none';
+      iframe.sandbox.add('allow-same-origin');
+      const cleanup = () => { try { document.body.removeChild(iframe); } catch {} };
+      const timer = setTimeout(() => { cleanup(); resolve(null); }, 6000);
+      iframe.onload = () => {
+        try {
+          const loc = iframe.contentWindow?.location?.href;
+          clearTimeout(timer);
+          cleanup();
+          resolve(loc && REDDIT_COMMENTS_RE.test(loc) ? loc : null);
+        } catch {
+          // Cross-origin — can't read location
+          clearTimeout(timer);
+          cleanup();
+          resolve(null);
+        }
+      };
+      iframe.onerror = () => { clearTimeout(timer); cleanup(); resolve(null); };
+      iframe.src = url;
+      document.body.appendChild(iframe);
+    });
+
+    if (resolved) return { resolved };
+
+    return { error: 'NEEDS_MANUAL_RESOLVE' };
+  } catch {
+    return { error: 'NEEDS_MANUAL_RESOLVE' };
+  }
+}
+
 const PLATFORMS: { key: Platform | 'all'; label: string; color: string }[] = [
   { key: 'all', label: 'All', color: '#f0f0f0' },
   { key: 'reddit', label: 'Reddit', color: '#FF4500' },
@@ -94,6 +155,7 @@ export default function ProjectPage() {
   const [sharing, setSharing] = useState(false);
   const [shareCopied, setShareCopied] = useState(false);
   const [quickNote, setQuickNote] = useState('');
+  const [redditSharePrompt, setRedditSharePrompt] = useState<string | null>(null);
   const urlInputRef = useRef<HTMLInputElement>(null);
 
   function showToast(msg: string) {
@@ -192,22 +254,49 @@ export default function ProjectPage() {
     if (!url) return;
     setFetching(true);
     setFetchError('');
+    setRedditSharePrompt(null);
     setOptimisticUrl(url);
     setOptimisticError(null);
     setUrlInput('');
+
+    // Client-side Reddit /s/ share link resolution
+    let resolvedUrl = url;
+    if (REDDIT_SHARE_RE.test(url)) {
+      setOptimisticError(null);
+      setFetchError('Resolving Reddit share link...');
+      const result = await resolveRedditShareLink(url);
+      if ('resolved' in result) {
+        resolvedUrl = result.resolved;
+        setFetchError('');
+      } else {
+        // Can't resolve automatically — show manual resolution UI
+        setFetching(false);
+        setFetchError('');
+        setOptimisticUrl(null);
+        setRedditSharePrompt(url);
+        return;
+      }
+    }
 
     try {
       const response = await fetch('/api/fetch-url', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ url }),
+        body: JSON.stringify({ url: resolvedUrl }),
       });
       if (!response.ok) {
         const err = await response.json();
+        // If server still gets a share link somehow, show manual resolve UI
+        if (err.error === 'REDDIT_SHARE_LINK') {
+          setFetching(false);
+          setOptimisticUrl(null);
+          setRedditSharePrompt(url);
+          return;
+        }
         throw new Error(err.error || 'Failed to fetch');
       }
       const data = await response.json();
-      await addCapture(projectId, url, data.title, data.body, data.author, data.images || [], data.metadata || {}, quickNote.trim());
+      await addCapture(projectId, resolvedUrl, data.title, data.body, data.author, data.images || [], data.metadata || {}, quickNote.trim());
       setOptimisticUrl(null);
       setQuickNote('');
       await loadData();
@@ -899,7 +988,7 @@ export default function ProjectPage() {
       {/* ── URL Input ── */}
       <div className="px-5 mb-4">
         <div className="flex gap-2">
-          <input ref={urlInputRef} type="url" value={urlInput} onChange={(e) => { setUrlInput(e.target.value); setFetchError(''); setDuplicateInfo(null); }} onKeyDown={(e) => e.key === 'Enter' && handleCheckDuplicate()} placeholder="Paste any URL (Reddit, X, GitHub, articles...)" className="flex-1 px-4 py-3 rounded-xl text-sm outline-none" style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border)', color: 'var(--text-primary)' }} disabled={fetching} />
+          <input ref={urlInputRef} type="url" value={urlInput} onChange={(e) => { setUrlInput(e.target.value); setFetchError(''); setDuplicateInfo(null); setRedditSharePrompt(null); }} onKeyDown={(e) => e.key === 'Enter' && handleCheckDuplicate()} placeholder="Paste any URL (Reddit, X, GitHub, articles...)" className="flex-1 px-4 py-3 rounded-xl text-sm outline-none" style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border)', color: 'var(--text-primary)' }} disabled={fetching} />
           <button onClick={handleCheckDuplicate} disabled={!urlInput.trim() || fetching} className="px-5 py-3 rounded-xl text-sm font-semibold active:scale-95 disabled:opacity-30 flex items-center gap-2" style={{ background: 'var(--accent)', color: 'var(--bg)' }}>
             {fetching ? (
               <>
@@ -909,7 +998,20 @@ export default function ProjectPage() {
             ) : 'Capture'}
           </button>
         </div>
-        {fetchError && <p className="text-xs mt-2 px-1" style={{ color: 'var(--danger)' }}>{fetchError}</p>}
+        {fetchError && !redditSharePrompt && <p className="text-xs mt-2 px-1" style={{ color: fetching ? 'var(--text-tertiary)' : 'var(--danger)' }}>{fetchError}</p>}
+        {redditSharePrompt && (
+          <div className="mt-2 px-3 py-2.5 rounded-xl text-xs" style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border)' }}>
+            <p style={{ color: 'var(--text-secondary)' }}>Reddit share links need one extra step — open the link, then copy the full URL from your browser.</p>
+            <div className="flex items-center gap-2 mt-2">
+              <a href={redditSharePrompt} target="_blank" rel="noopener noreferrer" className="px-3 py-1.5 rounded-lg text-xs font-semibold inline-flex items-center gap-1.5" style={{ background: '#FF4500', color: '#fff' }}>
+                Open in Reddit <span style={{ fontSize: '10px' }}>↗</span>
+              </a>
+              <button onClick={() => { setRedditSharePrompt(null); if (urlInputRef.current) urlInputRef.current.focus(); }} className="px-3 py-1.5 rounded-lg text-xs" style={{ color: 'var(--text-tertiary)' }}>
+                Dismiss
+              </button>
+            </div>
+          </div>
+        )}
         {duplicateInfo && (
           <div className="mt-2 px-3 py-2.5 rounded-xl text-xs flex items-center justify-between gap-3" style={{ background: 'var(--accent-dim)', border: '1px solid var(--accent)40' }}>
             <span style={{ color: 'var(--accent)' }}>
