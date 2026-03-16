@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { ProxyAgent, fetch as undiciFetch } from 'undici';
 
 // Allow up to 60 seconds for this route (Apify actors need time)
 export const maxDuration = 60;
@@ -208,7 +207,23 @@ function parseRedditJsonResponse(data: unknown): RedditJsonResult {
   return { postData, commentsData };
 }
 
-// ── Reddit Search API Strategy (works on Vercel — search endpoint not IP-blocked) ──
+// ── Cloudflare Worker Proxy (Strategy 0 — handles all Reddit URLs including /s/ links) ──
+
+async function fetchRedditCloudflare(url: string): Promise<RedditJsonResult> {
+  const proxyUrl = new URL('https://sift-reddit-proxy.silent-snowflake-2f58.workers.dev/');
+  proxyUrl.searchParams.set('url', url);
+  const response = await fetch(proxyUrl.toString(), {
+    headers: { 'User-Agent': 'BildCurationApp/1.0' },
+  });
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(`Cloudflare Proxy returned ${response.status}: ${text}`);
+  }
+  const data = await response.json();
+  return parseRedditJsonResponse(data);
+}
+
+// ── Reddit Search API Strategy ──
 
 function extractRedditPostIdFromUrl(url: string): string | null {
   const match = url.match(/\/comments\/([a-z0-9]+)/i);
@@ -217,33 +232,15 @@ function extractRedditPostIdFromUrl(url: string): string | null {
 
 /**
  * Normalize non-canonical Reddit URLs to canonical /comments/ format.
- * Handles: /s/ share links, redd.it short links, reddit.app.link, m.reddit.com
+ * Handles: m.reddit.com → www.reddit.com.
+ * Note: /s/ share links, redd.it short links, and app deep links are resolved
+ * by the Cloudflare Worker proxy (Strategy 0) which appends .json to any Reddit URL.
  */
-async function normalizeRedditUrl(url: string): Promise<string> {
+function normalizeRedditUrl(url: string): string {
   // m.reddit.com → www.reddit.com (simple replacement, no fetch needed)
   if (url.includes('m.reddit.com')) {
     url = url.replace('m.reddit.com', 'www.reddit.com');
   }
-
-  // If URL already has /comments/, it's canonical — no normalization needed
-  if (/\/comments\/[a-z0-9]+/i.test(url)) {
-    return url;
-  }
-
-  // /s/ share links, redd.it short links, app deep links — resolve via Apify browser
-  const needsResolve =
-    /reddit\.com\/r\/[^/]+\/s\//.test(url) ||
-    /redd\.it\/[a-z0-9]+/i.test(url) ||
-    /reddit\.app\.link/.test(url);
-
-  if (needsResolve) {
-    const resolved = await resolveRedditShareLink(url);
-    if (resolved) return resolved;
-    throw new Error(
-      'Could not resolve this Reddit share link. Try pasting the full post URL from your browser instead.'
-    );
-  }
-
   return url;
 }
 
@@ -660,8 +657,8 @@ async function fetchRedditJsonOld(url: string): Promise<RedditJsonResult> {
 }
 
 async function fetchReddit(url: string) {
-  // ── URL Normalization: resolve /s/ share links, redd.it, reddit.app.link, m.reddit.com ──
-  url = await normalizeRedditUrl(url);
+  // ── URL Normalization: m.reddit.com → www.reddit.com ──
+  url = normalizeRedditUrl(url);
 
   let extractionMethod = '';
   const errors: string[] = [];
@@ -670,25 +667,40 @@ async function fetchReddit(url: string) {
   let postData!: RedditPost;
   let commentsData: Array<{ kind: string; data: RedditComment & { replies?: { data?: { children?: Array<{ kind: string; data: RedditComment }> } } } }> = [];
 
-  // ── Strategy 0: Reddit Search API (works on Vercel — not IP-blocked) ──
+  // ── Strategy 0: Cloudflare Worker proxy (handles all Reddit URLs including /s/ links) ──
   try {
-    const result = await fetchRedditViaSearch(url);
+    const result = await fetchRedditCloudflare(url);
     postData = result.postData;
-    extractionMethod = 'search.reddit.com';
-    console.log(`[Reddit] Search API strategy succeeded`);
-
-    // Try to also fetch comments (may fail on Vercel, that's OK — post data is the priority)
-    commentsData = await fetchRedditCommentsOnly(url);
-    if (commentsData.length > 0) {
-      console.log(`[Reddit] Also fetched ${commentsData.length} comments`);
-    }
-  } catch (errSearch) {
-    const msgSearch = errSearch instanceof Error ? errSearch.message : 'unknown';
-    errors.push(`Search API: ${msgSearch}`);
-    console.warn(`[Reddit] Search API strategy failed: ${msgSearch}`);
+    commentsData = result.commentsData;
+    extractionMethod = 'cloudflare-proxy';
+    console.log(`[Reddit] Cloudflare Worker proxy succeeded`);
+  } catch (errCf) {
+    const msgCf = errCf instanceof Error ? errCf.message : 'unknown';
+    errors.push(`Cloudflare Proxy: ${msgCf}`);
+    console.warn(`[Reddit] Cloudflare Worker proxy failed: ${msgCf}`);
   }
 
-  // ── Strategy 1: RSS feed (no auth, works on Vercel as backup) ──
+  // ── Strategy 1: Reddit Search API (works on Vercel — not IP-blocked) ──
+  if (!extractionMethod) {
+    try {
+      const result = await fetchRedditViaSearch(url);
+      postData = result.postData;
+      extractionMethod = 'search.reddit.com';
+      console.log(`[Reddit] Search API strategy succeeded`);
+
+      // Try to also fetch comments (may fail on Vercel, that's OK — post data is the priority)
+      commentsData = await fetchRedditCommentsOnly(url);
+      if (commentsData.length > 0) {
+        console.log(`[Reddit] Also fetched ${commentsData.length} comments`);
+      }
+    } catch (errSearch) {
+      const msgSearch = errSearch instanceof Error ? errSearch.message : 'unknown';
+      errors.push(`Search API: ${msgSearch}`);
+      console.warn(`[Reddit] Search API strategy failed: ${msgSearch}`);
+    }
+  }
+
+  // ── Strategy 2: RSS feed (no auth, works on Vercel as backup) ──
   if (!extractionMethod) {
     try {
       const rssResult = await fetchRedditRss(url);
@@ -722,7 +734,7 @@ async function fetchReddit(url: string) {
     }
   }
 
-  // Strategy 2: Reddit OAuth API (if credentials configured)
+  // Strategy 3: Reddit OAuth API (if credentials configured)
   if (!extractionMethod) {
     const hasOAuth = !!(process.env.REDDIT_CLIENT_ID && process.env.REDDIT_CLIENT_SECRET);
     if (hasOAuth) {
@@ -740,7 +752,7 @@ async function fetchReddit(url: string) {
     }
   }
 
-  // Strategy 3: www.reddit.com .json (works locally, blocked on Vercel)
+  // Strategy 4: www.reddit.com .json (works locally, blocked on Vercel)
   if (!extractionMethod) {
     try {
       const result = await fetchRedditJsonWww(url);
@@ -755,7 +767,7 @@ async function fetchReddit(url: string) {
     }
   }
 
-  // Strategy 4: old.reddit.com HTML scraping
+  // Strategy 5: old.reddit.com HTML scraping
   if (!extractionMethod) {
     try {
       const htmlResult = await fetchRedditOldHtml(url);
@@ -779,7 +791,7 @@ async function fetchReddit(url: string) {
     }
   }
 
-  // Strategy 5: old.reddit.com .json endpoint
+  // Strategy 6: old.reddit.com .json endpoint
   if (!extractionMethod) {
     try {
       const result = await fetchRedditJsonOld(url);
@@ -794,36 +806,8 @@ async function fetchReddit(url: string) {
     }
   }
 
-  // Strategy 6: Apify web scraper (last resort — uses residential IPs to bypass 403 blocks)
+  // All strategies exhausted
   if (!extractionMethod) {
-    const apifyResult = await fetchRedditViaApify(url);
-    if (apifyResult) {
-      extractionMethod = 'apify';
-      console.log(`[Reddit] Apify strategy succeeded`);
-      return {
-        platform: 'reddit',
-        title: apifyResult.title,
-        body: apifyResult.selftext || '(Content extracted via Apify)',
-        author: apifyResult.author ? `u/${apifyResult.author}` : '',
-        images: apifyResult.images,
-        metadata: {
-          subreddit: apifyResult.subreddit,
-          score: apifyResult.score,
-          numComments: apifyResult.numComments,
-          flair: null,
-          permalink: url,
-          createdUtc: 0,
-          extractionMethod,
-        },
-      };
-    }
-
-    const hasToken = !!process.env.APIFY_TOKEN;
-    if (!hasToken) {
-      errors.push('Apify: APIFY_TOKEN not configured (needed for cloud deployment)');
-    } else {
-      errors.push('Apify: scraping failed');
-    }
     console.error(`[Reddit] All strategies failed:`, errors);
     throw new Error(`Reddit extraction failed: ${errors.join(' | ')}`);
   }
@@ -1266,143 +1250,6 @@ async function fetchViaSyndication(statusId: string): Promise<{
   }
 }
 
-// Resolve Reddit /s/ share links via Apify residential proxy (no actor — just proxied HTTP)
-async function resolveRedditShareLink(url: string): Promise<string | null> {
-  const token = process.env.APIFY_TOKEN;
-  if (!token) {
-    console.log(`[Reddit] No APIFY_TOKEN — cannot resolve share link`);
-    return null;
-  }
-
-  console.log(`[Reddit] Resolving share link via Apify proxy: ${url}`);
-
-  const proxyUrl = `http://auto:${token}@proxy.apify.com:8000`;
-  const dispatcher = new ProxyAgent(proxyUrl);
-  const MAX_HOPS = 5;
-  let currentUrl = url;
-
-  try {
-    for (let hop = 0; hop < MAX_HOPS; hop++) {
-      console.log(`[Reddit] Proxy hop ${hop + 1}/${MAX_HOPS}: ${currentUrl}`);
-
-      const response = await undiciFetch(currentUrl, {
-        method: 'GET',
-        redirect: 'manual',
-        dispatcher,
-        headers: {
-          'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
-        },
-        signal: AbortSignal.timeout(8000),
-      });
-
-      console.log(`[Reddit] Proxy hop ${hop + 1} status: ${response.status}`);
-
-      if (response.status >= 300 && response.status < 400) {
-        const location = response.headers.get('location');
-        if (location) {
-          currentUrl = location.startsWith('http') ? location : new URL(location, currentUrl).href;
-          console.log(`[Reddit] Redirect to: ${currentUrl}`);
-          if (/\/comments\/[a-z0-9]+/i.test(currentUrl)) {
-            console.log(`[Reddit] Resolved to canonical: ${currentUrl}`);
-            return currentUrl;
-          }
-          continue;
-        }
-      }
-
-      // Non-redirect response — check current URL
-      if (/\/comments\/[a-z0-9]+/i.test(currentUrl)) {
-        return currentUrl;
-      }
-
-      // Try extracting canonical from HTML
-      let html = '';
-      try { html = await response.text(); } catch { break; }
-
-      const canonical = html.match(/href="(https?:\/\/(?:www\.)?reddit\.com\/r\/[^"]*\/comments\/[a-z0-9]+[^"]*)"/i);
-      if (canonical) {
-        console.log(`[Reddit] Extracted canonical from HTML: ${canonical[1]}`);
-        return canonical[1];
-      }
-
-      const ogUrl = html.match(/<meta[^>]*property=["']og:url["'][^>]*content=["'](https?:\/\/[^"']+)["']/i);
-      if (ogUrl && /\/comments\/[a-z0-9]+/i.test(ogUrl[1])) {
-        console.log(`[Reddit] Extracted og:url: ${ogUrl[1]}`);
-        return ogUrl[1];
-      }
-
-      console.log(`[Reddit] No canonical found at hop ${hop + 1}`);
-      break;
-    }
-
-    console.warn(`[Reddit] Proxy resolution failed after redirect chain (last: ${currentUrl})`);
-    return null;
-  } catch (e) {
-    const msg = e instanceof Error ? e.message : 'unknown error';
-    console.warn(`[Reddit] Proxy resolution failed: ${msg}`);
-    return null;
-  }
-}
-
-// Apify Reddit scraper (costs credits, used when all direct APIs are blocked)
-async function fetchRedditViaApify(url: string): Promise<{
-  title: string;
-  selftext: string;
-  author: string;
-  subreddit: string;
-  score: number;
-  numComments: number;
-  images: string[];
-} | null> {
-  const token = process.env.APIFY_TOKEN;
-  if (!token) return null;
-
-  try {
-    // Use Apify's website-content-crawler to scrape old.reddit.com
-    const actorId = 'apify~website-content-crawler';
-    const oldUrl = url.replace('www.reddit.com', 'old.reddit.com');
-    const apiUrl = `https://api.apify.com/v2/acts/${actorId}/run-sync-get-dataset-items?token=${token}&timeout=30`;
-
-    const response = await fetch(apiUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        startUrls: [{ url: oldUrl }],
-        maxCrawlPages: 1,
-        crawlerType: 'cheerio',
-      }),
-    });
-
-    if (!response.ok) {
-      console.warn(`[Reddit] Apify returned ${response.status}`);
-      return null;
-    }
-
-    const data = await response.json();
-    if (!data || data.length === 0) return null;
-
-    const item = data[0];
-    const text = item.text || item.markdown || '';
-    const title = item.metadata?.title || '';
-
-    // Parse subreddit and author from the URL/content
-    const subredditMatch = url.match(/\/r\/([^/]+)/);
-    const subreddit = subredditMatch?.[1] || '';
-
-    return {
-      title: title.replace(/ : \w+$/, '').replace(/ - Reddit$/, ''),
-      selftext: text.slice(0, 15000),
-      author: '',
-      subreddit,
-      score: 0,
-      numComments: 0,
-      images: [],
-    };
-  } catch (e) {
-    console.warn('[Reddit] Apify fallback failed:', e instanceof Error ? e.message : e);
-    return null;
-  }
-}
 
 // Strategy 3: Apify tweet scraper (costs credits, use as fallback)
 async function fetchViaApify(url: string): Promise<{
