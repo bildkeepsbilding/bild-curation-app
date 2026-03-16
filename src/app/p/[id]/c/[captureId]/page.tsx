@@ -259,11 +259,23 @@ export default function SharedCapturePage() {
 
         {/* Full body */}
         {capture.body?.includes('[image:') ? (
-          <div style={{ fontSize: '17px', lineHeight: 1.8, color: 'var(--text-secondary)' }}>
+          <div style={{ fontSize: '17px', lineHeight: 1.8, color: 'var(--text-secondary)', overflowWrap: 'break-word', wordBreak: 'break-word' }}>
             {capture.body.split(/(\[image:[^\]]+\])/).map((part, i) => {
               const imgMatch = part.match(/^\[image:(.+)\]$/);
               if (imgMatch) {
-                return <img key={i} src={imgMatch[1]} alt="Article image" className="w-full rounded-xl my-8" style={{ border: '1px solid var(--border-subtle)' }} loading="lazy" referrerPolicy="no-referrer" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />;
+                return (
+                  <div key={i} className="w-full my-8">
+                    <img 
+                      src={imgMatch[1]} 
+                      alt="Article image" 
+                      className="w-full h-auto rounded-xl" 
+                      style={{ border: '1px solid var(--border-subtle)', maxWidth: '100%', objectFit: 'contain' }} 
+                      loading="lazy" 
+                      referrerPolicy="no-referrer" 
+                      onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} 
+                    />
+                  </div>
+                );
               }
               return part ? <div key={i}>{renderMarkdownBody(part)}</div> : null;
             })}
