@@ -899,7 +899,7 @@ export default function ProjectPage() {
       {/* ── URL Input ── */}
       <div className="px-5 mb-4">
         <div className="flex gap-2">
-          <input ref={urlInputRef} type="url" value={urlInput} onChange={(e) => { setUrlInput(e.target.value); setFetchError(''); setDuplicateInfo(null); setRedditSharePrompt(null); }} onKeyDown={(e) => e.key === 'Enter' && handleCheckDuplicate()} placeholder="Paste any URL (Reddit, X, GitHub, articles...)" className="flex-1 px-4 py-3 rounded-xl text-sm outline-none" style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border)', color: 'var(--text-primary)' }} disabled={fetching} />
+          <input ref={urlInputRef} type="url" value={urlInput} onChange={(e) => { setUrlInput(e.target.value); setFetchError(''); setDuplicateInfo(null); }} onKeyDown={(e) => e.key === 'Enter' && handleCheckDuplicate()} placeholder="Paste any URL (Reddit, X, GitHub, articles...)" className="flex-1 px-4 py-3 rounded-xl text-sm outline-none" style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border)', color: 'var(--text-primary)' }} disabled={fetching} />
           <button onClick={handleCheckDuplicate} disabled={!urlInput.trim() || fetching} className="px-5 py-3 rounded-xl text-sm font-semibold active:scale-95 disabled:opacity-30 flex items-center gap-2" style={{ background: 'var(--accent)', color: 'var(--bg)' }}>
             {fetching ? (
               <>
