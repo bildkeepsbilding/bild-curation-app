@@ -2,6 +2,7 @@
 
 import { useState, useEffect, Suspense } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
+import Link from 'next/link';
 import { getProjects, addCapture, type Project } from '@/lib/db';
 
 const REDDIT_SHARE_RE = /reddit\.com\/r\/[^/]+\/s\//;
@@ -270,9 +271,9 @@ function SharePageContent() {
 
         {/* Footer link */}
         <div style={{ textAlign: 'center', marginTop: 8 }}>
-          <a href="/" style={{ fontSize: 13, color: 'var(--text-secondary)', textDecoration: 'none' }}>
+          <Link href="/" style={{ fontSize: 13, color: 'var(--text-secondary)', textDecoration: 'none' }}>
             Open Sift
-          </a>
+          </Link>
         </div>
       </div>
     </div>

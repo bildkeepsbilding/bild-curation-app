@@ -85,8 +85,8 @@ function extractRedditImages(postData: RedditPost): string[] {
     // Sort by gallery_data order if available
     const sortedEntries = orderedIds
       ? orderedIds
-          .map(id => [id, postData.media_metadata![id]] as const)
-          .filter(([, v]) => v)
+        .map(id => [id, postData.media_metadata![id]] as const)
+        .filter(([, v]) => v)
       : metaEntries;
 
     for (const [, item] of sortedEntries) {
