@@ -1265,7 +1265,7 @@ async function fetchViaSyndication(statusId: string): Promise<{
   }
 }
 
-// Resolve Reddit /s/ share links via Apify browser (JS redirects execute normally)
+// Resolve Reddit /s/ share links via Apify web-scraper (lightweight — just gets final URL)
 async function resolveRedditShareLink(url: string): Promise<string | null> {
   const token = process.env.APIFY_TOKEN;
   if (!token) {
@@ -1273,13 +1273,13 @@ async function resolveRedditShareLink(url: string): Promise<string | null> {
     return null;
   }
 
-  console.log(`[Reddit] Resolving share link via Apify: ${url}`);
+  console.log(`[Reddit] Resolving share link via Apify web-scraper: ${url}`);
 
-  const actorId = 'apify~website-content-crawler';
-  const apiUrl = `https://api.apify.com/v2/acts/${actorId}/run-sync-get-dataset-items?token=${token}&timeout=30`;
+  const actorId = 'apify~web-scraper';
+  const apiUrl = `https://api.apify.com/v2/acts/${actorId}/run-sync-get-dataset-items?token=${token}&timeout=15`;
 
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 35000); // 35s total (30s actor + 5s network)
+  const timeoutId = setTimeout(() => controller.abort(), 20000); // 20s total (15s actor + 5s network)
 
   try {
     const response = await fetch(apiUrl, {
@@ -1288,45 +1288,39 @@ async function resolveRedditShareLink(url: string): Promise<string | null> {
       signal: controller.signal,
       body: JSON.stringify({
         startUrls: [{ url }],
-        maxCrawlPages: 1,
-        crawlerType: 'playwright:chrome', // Full browser — executes Reddit's JS redirects
+        pageFunction: `async function pageFunction({ request }) { return { resolvedUrl: request.loadedUrl || request.url }; }`,
+        maxRequestsPerCrawl: 1,
+        proxyConfiguration: { useApifyProxy: true },
+        maxConcurrency: 1,
       }),
     });
 
     if (!response.ok) {
-      console.warn(`[Reddit] Apify share-link resolver returned ${response.status}`);
+      console.warn(`[Reddit] Apify web-scraper returned ${response.status}`);
       return null;
     }
 
     const data = await response.json();
     if (!data || data.length === 0) {
-      console.warn(`[Reddit] Apify returned empty dataset for share link`);
+      console.warn(`[Reddit] Apify web-scraper returned empty dataset`);
       return null;
     }
 
-    // The crawler follows JS redirects — the final URL in the response is the canonical one
     const item = data[0];
-    const resolvedUrl: string = item.url || item.loadedUrl || '';
-    console.log(`[Reddit] Apify resolved to: ${resolvedUrl}`);
+    const resolvedUrl: string = item.resolvedUrl || item.url || item.loadedUrl || '';
+    console.log(`[Reddit] Apify web-scraper resolved to: ${resolvedUrl}`);
 
     if (/\/comments\/[a-z0-9]+/i.test(resolvedUrl)) {
       return resolvedUrl;
     }
 
-    // Also check the canonical URL in metadata
-    const canonical: string = item.metadata?.canonicalUrl || '';
-    if (/\/comments\/[a-z0-9]+/i.test(canonical)) {
-      console.log(`[Reddit] Using canonical from metadata: ${canonical}`);
-      return canonical;
-    }
-
-    console.warn(`[Reddit] Apify resolved URL doesn't contain /comments/: ${resolvedUrl}`);
+    console.warn(`[Reddit] Resolved URL doesn't contain /comments/: ${resolvedUrl}`);
     return null;
   } catch (e) {
     const msg = e instanceof Error && e.name === 'AbortError'
       ? 'timed out (20s)'
       : e instanceof Error ? e.message : 'unknown error';
-    console.warn(`[Reddit] Apify share-link resolution failed: ${msg}`);
+    console.warn(`[Reddit] Apify web-scraper resolution failed: ${msg}`);
     return null;
   } finally {
     clearTimeout(timeoutId);
