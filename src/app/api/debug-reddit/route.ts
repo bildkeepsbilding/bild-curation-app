@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 
-export const maxDuration = 30;
+export const maxDuration = 45;
 
 export async function GET(request: NextRequest) {
   const url = request.nextUrl.searchParams.get('url');
@@ -77,7 +77,7 @@ export async function GET(request: NextRequest) {
   // Step 3: Call Apify with Playwright (the actual resolveRedditShareLink logic)
   log.push('Step 3: Calling Apify website-content-crawler with Playwright');
   const actorId = 'apify~website-content-crawler';
-  const apiUrl = `https://api.apify.com/v2/acts/${actorId}/run-sync-get-dataset-items?token=${token}&timeout=15`;
+  const apiUrl = `https://api.apify.com/v2/acts/${actorId}/run-sync-get-dataset-items?token=${token}&timeout=30`;
 
   const apifyPayload = {
     startUrls: [{ url }],
@@ -88,7 +88,7 @@ export async function GET(request: NextRequest) {
 
   try {
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 20000);
+    const timeout = setTimeout(() => controller.abort(), 35000);
     const startTime = Date.now();
 
     const response = await fetch(apiUrl, {

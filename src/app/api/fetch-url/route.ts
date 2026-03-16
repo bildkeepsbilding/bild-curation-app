@@ -1276,10 +1276,10 @@ async function resolveRedditShareLink(url: string): Promise<string | null> {
   console.log(`[Reddit] Resolving share link via Apify: ${url}`);
 
   const actorId = 'apify~website-content-crawler';
-  const apiUrl = `https://api.apify.com/v2/acts/${actorId}/run-sync-get-dataset-items?token=${token}&timeout=15`;
+  const apiUrl = `https://api.apify.com/v2/acts/${actorId}/run-sync-get-dataset-items?token=${token}&timeout=30`;
 
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 20000); // 20s total (15s actor + 5s network)
+  const timeoutId = setTimeout(() => controller.abort(), 35000); // 35s total (30s actor + 5s network)
 
   try {
     const response = await fetch(apiUrl, {
