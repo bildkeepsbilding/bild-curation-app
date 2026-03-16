@@ -229,52 +229,21 @@ async function normalizeRedditUrl(url: string): Promise<string> {
     return url;
   }
 
-  // Detect non-canonical formats that need redirect resolution
-  const needsRedirect =
-    /reddit\.com\/r\/[^/]+\/s\//.test(url) ||  // /s/ share links
-    /redd\.it\/[a-z0-9]+/i.test(url) ||         // redd.it short links
-    /reddit\.app\.link/.test(url);               // app deep links
+  // /s/ share links, redd.it short links, app deep links — resolve via Apify browser
+  const needsResolve =
+    /reddit\.com\/r\/[^/]+\/s\//.test(url) ||
+    /redd\.it\/[a-z0-9]+/i.test(url) ||
+    /reddit\.app\.link/.test(url);
 
-  if (!needsRedirect) {
-    return url; // Not a known non-canonical format, pass through
-  }
-
-  console.log(`[Reddit] Normalizing non-canonical URL: ${url}`);
-
-  try {
-    // Follow redirects to get the canonical URL
-    const response = await fetch(url, {
-      method: 'GET',
-      redirect: 'follow',
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (compatible; SiftApp/1.0)',
-      },
-    });
-
-    const finalUrl = response.url;
-
-    // Verify we got a canonical /comments/ URL
-    if (/\/comments\/[a-z0-9]+/i.test(finalUrl)) {
-      console.log(`[Reddit] Resolved to: ${finalUrl}`);
-      return finalUrl;
-    }
-
-    // Sometimes the redirect lands on a page that has the canonical URL embedded
-    // Try to extract it from the response if redirect didn't give us /comments/
-    const html = await response.text();
-    const canonicalMatch = html.match(/href="(https?:\/\/(?:www\.)?reddit\.com\/r\/[^"]*\/comments\/[a-z0-9]+[^"]*)"/i);
-    if (canonicalMatch) {
-      console.log(`[Reddit] Extracted canonical URL from page: ${canonicalMatch[1]}`);
-      return canonicalMatch[1];
-    }
-
-    throw new Error(`Redirect resolved to non-canonical URL: ${finalUrl}`);
-  } catch (error) {
-    const msg = error instanceof Error ? error.message : 'unknown error';
+  if (needsResolve) {
+    const resolved = await resolveRedditShareLink(url);
+    if (resolved) return resolved;
     throw new Error(
-      `Could not resolve this Reddit link (${msg}). Try pasting the full post URL from your browser instead.`
+      'Could not resolve this Reddit share link. Try pasting the full post URL from your browser instead.'
     );
   }
+
+  return url;
 }
 
 async function fetchRedditViaSearch(url: string): Promise<RedditJsonResult> {
@@ -1081,9 +1050,9 @@ async function fetchViaFxTwitter(username: string, statusId: string): Promise<{
     // Interleaves text and inline images using [image:URL] markers
     // Uses entityMap to correctly map atomic blocks → mediaId → media_entity URL
     if (tweet.article?.content?.blocks) {
-      const blocks = tweet.article.content.blocks as Array<{ text?: string; type?: string; entityRanges?: Array<{ key: number; length: number; offset: number }> }>;
+      const blocks = tweet.article.content.blocks as Array<{ text?: string; type?: string; entityRanges?: Array<{ key: number; length: number; offset: number }>; inlineStyleRanges?: Array<{ style: string; offset: number; length: number }> }>;
       const mediaEntities = (tweet.article.media_entities || []) as Array<{ media_id?: string; media_info?: { original_img_url?: string } }>;
-      const entityMap = tweet.article.content.entityMap as Array<{ key: string; value: { type: string; data: { mediaItems?: Array<{ mediaId: string }> } } }> | undefined;
+      const entityMap = tweet.article.content.entityMap as Array<{ key: string; value: { type: string; data: { url?: string; mediaItems?: Array<{ mediaId: string }> } } }> | undefined;
 
       // Build lookup: mediaId → image URL from media_entities
       const mediaIdToUrl: Record<string, string> = {};
@@ -1093,8 +1062,9 @@ async function fetchViaFxTwitter(username: string, statusId: string): Promise<{
         }
       }
 
-      // Build lookup: entity key → image URL via entityMap → mediaId → media_entity
+      // Build lookups from entityMap: media keys → image URLs, link keys → URLs
       const entityKeyToUrl: Record<string, string> = {};
+      const entityKeyToLink: Record<string, string> = {};
       if (entityMap && Array.isArray(entityMap)) {
         for (const entry of entityMap) {
           const key = entry.key;
@@ -1105,14 +1075,32 @@ async function fetchViaFxTwitter(username: string, statusId: string): Promise<{
                 entityKeyToUrl[key] = mediaIdToUrl[item.mediaId];
               }
             }
+          } else if (val?.type === 'LINK' && val.data?.url) {
+            entityKeyToLink[key] = val.data.url;
           }
         }
       }
 
       let fallbackMediaIndex = 0;
       const parts: string[] = [];
+      let codeBlockLines: string[] = []; // Accumulate consecutive code-block lines
+
+      const flushCodeBlock = () => {
+        if (codeBlockLines.length > 0) {
+          parts.push('```\n' + codeBlockLines.join('\n') + '\n```');
+          codeBlockLines = [];
+        }
+      };
 
       for (const block of blocks) {
+        if (block.type === 'code-block') {
+          // Draft.js represents each code line as a separate code-block block
+          codeBlockLines.push(block.text || '');
+          continue;
+        }
+        // Flush accumulated code block lines before processing non-code block
+        flushCodeBlock();
+
         if (block.type === 'atomic') {
           // Resolve image URL via entity key chain: block → entityRanges → entityMap → mediaId → URL
           let imgUrl: string | undefined;
@@ -1126,9 +1114,26 @@ async function fetchViaFxTwitter(username: string, statusId: string): Promise<{
           if (imgUrl) parts.push(`[image:${imgUrl}]`);
           fallbackMediaIndex++;
         } else if (block.text && block.text.length > 0) {
-          parts.push(block.text);
+          // Process text blocks: embed hyperlinks from entityRanges
+          let blockText = block.text;
+          if (block.entityRanges && block.entityRanges.length > 0) {
+            // Sort entity ranges by offset descending so we can insert without shifting indices
+            const sortedRanges = [...block.entityRanges].sort((a, b) => b.offset - a.offset);
+            for (const range of sortedRanges) {
+              const linkUrl = entityKeyToLink[String(range.key)];
+              if (linkUrl) {
+                const before = blockText.slice(0, range.offset);
+                const linkText = blockText.slice(range.offset, range.offset + range.length);
+                const after = blockText.slice(range.offset + range.length);
+                blockText = `${before}[${linkText}](${linkUrl})${after}`;
+              }
+            }
+          }
+          parts.push(blockText);
         }
       }
+      // Flush any trailing code block
+      flushCodeBlock();
 
       const articleText = parts.join('\n\n');
       if (articleText.length > text.length) {
@@ -1152,6 +1157,14 @@ async function fetchViaFxTwitter(username: string, statusId: string): Promise<{
       for (const entity of tweet.article.media_entities) {
         const url = entity?.media_info?.original_img_url;
         if (url && !images.includes(url)) images.push(url);
+      }
+    }
+    // Fallback cover for articles: if no cover_media and no tweet media photos,
+    // extract the first inline [image:URL] from article body or use tweet media photos
+    if (isArticle && images.length === 0) {
+      const inlineImageMatch = text.match(/\[image:(https?:\/\/[^\]]+)\]/);
+      if (inlineImageMatch) {
+        images.unshift(inlineImageMatch[1]);
       }
     }
 
@@ -1249,6 +1262,74 @@ async function fetchViaSyndication(statusId: string): Promise<{
   } catch (e) {
     console.error('Syndication API failed:', e);
     return null;
+  }
+}
+
+// Resolve Reddit /s/ share links via Apify browser (JS redirects execute normally)
+async function resolveRedditShareLink(url: string): Promise<string | null> {
+  const token = process.env.APIFY_TOKEN;
+  if (!token) {
+    console.log(`[Reddit] No APIFY_TOKEN — cannot resolve share link`);
+    return null;
+  }
+
+  console.log(`[Reddit] Resolving share link via Apify: ${url}`);
+
+  const actorId = 'apify~website-content-crawler';
+  const apiUrl = `https://api.apify.com/v2/acts/${actorId}/run-sync-get-dataset-items?token=${token}&timeout=15`;
+
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 20000); // 20s total (15s actor + 5s network)
+
+  try {
+    const response = await fetch(apiUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      signal: controller.signal,
+      body: JSON.stringify({
+        startUrls: [{ url }],
+        maxCrawlPages: 1,
+        crawlerType: 'playwright', // Full browser — executes Reddit's JS redirects
+      }),
+    });
+
+    if (!response.ok) {
+      console.warn(`[Reddit] Apify share-link resolver returned ${response.status}`);
+      return null;
+    }
+
+    const data = await response.json();
+    if (!data || data.length === 0) {
+      console.warn(`[Reddit] Apify returned empty dataset for share link`);
+      return null;
+    }
+
+    // The crawler follows JS redirects — the final URL in the response is the canonical one
+    const item = data[0];
+    const resolvedUrl: string = item.url || item.loadedUrl || '';
+    console.log(`[Reddit] Apify resolved to: ${resolvedUrl}`);
+
+    if (/\/comments\/[a-z0-9]+/i.test(resolvedUrl)) {
+      return resolvedUrl;
+    }
+
+    // Also check the canonical URL in metadata
+    const canonical: string = item.metadata?.canonicalUrl || '';
+    if (/\/comments\/[a-z0-9]+/i.test(canonical)) {
+      console.log(`[Reddit] Using canonical from metadata: ${canonical}`);
+      return canonical;
+    }
+
+    console.warn(`[Reddit] Apify resolved URL doesn't contain /comments/: ${resolvedUrl}`);
+    return null;
+  } catch (e) {
+    const msg = e instanceof Error && e.name === 'AbortError'
+      ? 'timed out (20s)'
+      : e instanceof Error ? e.message : 'unknown error';
+    console.warn(`[Reddit] Apify share-link resolution failed: ${msg}`);
+    return null;
+  } finally {
+    clearTimeout(timeoutId);
   }
 }
 
