@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { ProxyAgent, fetch as undiciFetch } from 'undici';
 
 export const maxDuration = 30;
 
@@ -20,125 +21,143 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ ...result, error: 'APIFY_TOKEN not configured' }, { status: 500 });
   }
 
-  // Step 1: Try a simple server-side redirect follow first (for comparison)
-  log.push('Step 1: Testing direct fetch with redirect:follow');
+  // Step 1: Direct fetch from Vercel (for comparison — expected to fail on cloud IPs)
+  log.push('Step 1: Direct fetch with redirect:follow (Vercel IP)');
   try {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 5000);
     const directResp = await fetch(url, {
       method: 'GET',
       redirect: 'follow',
-      signal: controller.signal,
+      signal: AbortSignal.timeout(5000),
       headers: {
         'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
       },
     });
-    clearTimeout(timeout);
     result.directFetch = {
       status: directResp.status,
       finalUrl: directResp.url,
       redirected: directResp.redirected,
       hasComments: /\/comments\/[a-z0-9]+/i.test(directResp.url),
     };
-    log.push(`Direct fetch: status=${directResp.status}, finalUrl=${directResp.url}`);
+    log.push(`Direct: status=${directResp.status}, url=${directResp.url}`);
   } catch (e) {
     const msg = e instanceof Error ? `${e.name}: ${e.message}` : String(e);
     result.directFetch = { error: msg };
-    log.push(`Direct fetch failed: ${msg}`);
+    log.push(`Direct failed: ${msg}`);
   }
 
-  // Step 2: Try redirect:manual to see raw redirects
-  log.push('Step 2: Testing fetch with redirect:manual');
+  // Step 2: Direct fetch with redirect:manual (see raw redirect)
+  log.push('Step 2: Direct fetch with redirect:manual (Vercel IP)');
   try {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 5000);
     const manualResp = await fetch(url, {
       method: 'GET',
       redirect: 'manual',
-      signal: controller.signal,
+      signal: AbortSignal.timeout(5000),
       headers: {
         'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
       },
     });
-    clearTimeout(timeout);
     const location = manualResp.headers.get('location');
     result.manualFetch = {
       status: manualResp.status,
       location,
       hasComments: location ? /\/comments\/[a-z0-9]+/i.test(location) : false,
     };
-    log.push(`Manual fetch: status=${manualResp.status}, location=${location}`);
+    log.push(`Manual: status=${manualResp.status}, location=${location}`);
   } catch (e) {
     const msg = e instanceof Error ? `${e.name}: ${e.message}` : String(e);
     result.manualFetch = { error: msg };
-    log.push(`Manual fetch failed: ${msg}`);
+    log.push(`Manual failed: ${msg}`);
   }
 
-  // Step 3: Call Apify web-scraper (lightweight — just gets final URL after JS redirect)
-  log.push('Step 3: Calling Apify web-scraper for URL resolution');
-  const actorId = 'apify~web-scraper';
-  const apiUrl = `https://api.apify.com/v2/acts/${actorId}/run-sync-get-dataset-items?token=${token}&timeout=15`;
+  // Step 3: Proxied fetch via Apify residential proxy (the actual fix)
+  log.push('Step 3: Apify proxy with redirect:manual (residential IP, hop-by-hop)');
+  const proxyUrl = `http://auto:${token}@proxy.apify.com:8000`;
+  const dispatcher = new ProxyAgent(proxyUrl);
+  const hops: Array<{ hop: number; url: string; status: number; location: string | null; hasComments: boolean }> = [];
 
-  const apifyPayload = {
-    startUrls: [{ url }],
-    pageFunction: `async function pageFunction({ request }) { return { resolvedUrl: request.loadedUrl || request.url }; }`,
-    maxRequestsPerCrawl: 1,
-    proxyConfiguration: { useApifyProxy: true },
-    maxConcurrency: 1,
-  };
-  result.apifyRequest = { actorId, apiUrl: apiUrl.replace(token, 'REDACTED'), payload: apifyPayload };
+  let currentUrl = url;
+  let resolved = false;
 
   try {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 20000);
-    const startTime = Date.now();
+    for (let hop = 0; hop < 5; hop++) {
+      const startMs = Date.now();
+      const response = await undiciFetch(currentUrl, {
+        method: 'GET',
+        redirect: 'manual',
+        dispatcher,
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+        },
+        signal: AbortSignal.timeout(8000),
+      });
+      const elapsedMs = Date.now() - startMs;
 
-    const response = await fetch(apiUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      signal: controller.signal,
-      body: JSON.stringify(apifyPayload),
-    });
-    clearTimeout(timeout);
+      const location = response.headers.get('location');
+      const hopData = {
+        hop: hop + 1,
+        url: currentUrl,
+        status: response.status,
+        location,
+        hasComments: false,
+        elapsedMs,
+      };
 
-    const elapsed = Date.now() - startTime;
-    log.push(`Apify responded in ${elapsed}ms with status ${response.status}`);
-
-    result.apifyResponse = {
-      status: response.status,
-      statusText: response.statusText,
-      elapsedMs: elapsed,
-      contentType: response.headers.get('content-type'),
-    };
-
-    if (!response.ok) {
-      const errorBody = await response.text();
-      result.apifyResponse = { ...result.apifyResponse as Record<string, unknown>, errorBody: errorBody.slice(0, 2000) };
-      log.push(`Apify error body: ${errorBody.slice(0, 500)}`);
-    } else {
-      const data = await response.json();
-      result.apifyData = data;
-      log.push(`Apify returned ${Array.isArray(data) ? data.length : 0} items`);
-
-      if (Array.isArray(data) && data.length > 0) {
-        const item = data[0];
-        const resolvedUrl = item.resolvedUrl || item.url || item.loadedUrl || '';
-        result.resolution = {
-          resolvedUrl,
-          itemUrl: item.url,
-          loadedUrl: item.loadedUrl,
-          pageResolvedUrl: item.resolvedUrl,
-          hasComments: /\/comments\/[a-z0-9]+/i.test(resolvedUrl),
-          wouldResolve: /\/comments\/[a-z0-9]+/i.test(resolvedUrl),
-        };
-        log.push(`Resolution: resolvedUrl=${resolvedUrl}`);
+      if (response.status >= 300 && response.status < 400 && location) {
+        currentUrl = location.startsWith('http') ? location : new URL(location, currentUrl).href;
+        hopData.hasComments = /\/comments\/[a-z0-9]+/i.test(currentUrl);
+        hops.push(hopData);
+        log.push(`Hop ${hop + 1}: ${response.status} → ${currentUrl} (${elapsedMs}ms)`);
+        if (hopData.hasComments) {
+          resolved = true;
+          break;
+        }
+        continue;
       }
+
+      hops.push(hopData);
+      log.push(`Hop ${hop + 1}: ${response.status} (no redirect) (${elapsedMs}ms)`);
+
+      // Check if current URL is canonical
+      if (/\/comments\/[a-z0-9]+/i.test(currentUrl)) {
+        resolved = true;
+        break;
+      }
+
+      // Try HTML extraction
+      try {
+        const html = await response.text();
+        const canonical = html.match(/href="(https?:\/\/(?:www\.)?reddit\.com\/r\/[^"]*\/comments\/[a-z0-9]+[^"]*)"/i);
+        if (canonical) {
+          currentUrl = canonical[1];
+          resolved = true;
+          log.push(`Extracted canonical from HTML: ${canonical[1]}`);
+          break;
+        }
+        const ogUrl = html.match(/<meta[^>]*property=["']og:url["'][^>]*content=["'](https?:\/\/[^"']+)["']/i);
+        if (ogUrl && /\/comments\/[a-z0-9]+/i.test(ogUrl[1])) {
+          currentUrl = ogUrl[1];
+          resolved = true;
+          log.push(`Extracted og:url from HTML: ${ogUrl[1]}`);
+          break;
+        }
+        log.push(`No canonical URL found in HTML (${html.length} chars)`);
+      } catch {
+        log.push(`Failed to read response body`);
+      }
+      break;
     }
   } catch (e) {
     const msg = e instanceof Error ? `${e.name}: ${e.message}` : String(e);
-    result.apifyResponse = { error: msg };
-    log.push(`Apify call failed: ${msg}`);
+    log.push(`Proxy fetch failed: ${msg}`);
+    result.proxyError = msg;
   }
+
+  result.proxyHops = hops;
+  result.proxyResolution = {
+    resolved,
+    finalUrl: currentUrl,
+    hasComments: /\/comments\/[a-z0-9]+/i.test(currentUrl),
+  };
 
   result.log = log;
   return NextResponse.json(result, { status: 200 });

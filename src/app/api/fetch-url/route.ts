@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { ProxyAgent, fetch as undiciFetch } from 'undici';
 
 // Allow up to 60 seconds for this route (Apify actors need time)
 export const maxDuration = 60;
@@ -1265,7 +1266,7 @@ async function fetchViaSyndication(statusId: string): Promise<{
   }
 }
 
-// Resolve Reddit /s/ share links via Apify web-scraper (lightweight — just gets final URL)
+// Resolve Reddit /s/ share links via Apify residential proxy (no actor — just proxied HTTP)
 async function resolveRedditShareLink(url: string): Promise<string | null> {
   const token = process.env.APIFY_TOKEN;
   if (!token) {
@@ -1273,57 +1274,73 @@ async function resolveRedditShareLink(url: string): Promise<string | null> {
     return null;
   }
 
-  console.log(`[Reddit] Resolving share link via Apify web-scraper: ${url}`);
+  console.log(`[Reddit] Resolving share link via Apify proxy: ${url}`);
 
-  const actorId = 'apify~web-scraper';
-  const apiUrl = `https://api.apify.com/v2/acts/${actorId}/run-sync-get-dataset-items?token=${token}&timeout=15`;
-
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 20000); // 20s total (15s actor + 5s network)
+  const proxyUrl = `http://auto:${token}@proxy.apify.com:8000`;
+  const dispatcher = new ProxyAgent(proxyUrl);
+  const MAX_HOPS = 5;
+  let currentUrl = url;
 
   try {
-    const response = await fetch(apiUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      signal: controller.signal,
-      body: JSON.stringify({
-        startUrls: [{ url }],
-        pageFunction: `async function pageFunction({ request }) { return { resolvedUrl: request.loadedUrl || request.url }; }`,
-        maxRequestsPerCrawl: 1,
-        proxyConfiguration: { useApifyProxy: true },
-        maxConcurrency: 1,
-      }),
-    });
+    for (let hop = 0; hop < MAX_HOPS; hop++) {
+      console.log(`[Reddit] Proxy hop ${hop + 1}/${MAX_HOPS}: ${currentUrl}`);
 
-    if (!response.ok) {
-      console.warn(`[Reddit] Apify web-scraper returned ${response.status}`);
-      return null;
+      const response = await undiciFetch(currentUrl, {
+        method: 'GET',
+        redirect: 'manual',
+        dispatcher,
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+        },
+        signal: AbortSignal.timeout(8000),
+      });
+
+      console.log(`[Reddit] Proxy hop ${hop + 1} status: ${response.status}`);
+
+      if (response.status >= 300 && response.status < 400) {
+        const location = response.headers.get('location');
+        if (location) {
+          currentUrl = location.startsWith('http') ? location : new URL(location, currentUrl).href;
+          console.log(`[Reddit] Redirect to: ${currentUrl}`);
+          if (/\/comments\/[a-z0-9]+/i.test(currentUrl)) {
+            console.log(`[Reddit] Resolved to canonical: ${currentUrl}`);
+            return currentUrl;
+          }
+          continue;
+        }
+      }
+
+      // Non-redirect response — check current URL
+      if (/\/comments\/[a-z0-9]+/i.test(currentUrl)) {
+        return currentUrl;
+      }
+
+      // Try extracting canonical from HTML
+      let html = '';
+      try { html = await response.text(); } catch { break; }
+
+      const canonical = html.match(/href="(https?:\/\/(?:www\.)?reddit\.com\/r\/[^"]*\/comments\/[a-z0-9]+[^"]*)"/i);
+      if (canonical) {
+        console.log(`[Reddit] Extracted canonical from HTML: ${canonical[1]}`);
+        return canonical[1];
+      }
+
+      const ogUrl = html.match(/<meta[^>]*property=["']og:url["'][^>]*content=["'](https?:\/\/[^"']+)["']/i);
+      if (ogUrl && /\/comments\/[a-z0-9]+/i.test(ogUrl[1])) {
+        console.log(`[Reddit] Extracted og:url: ${ogUrl[1]}`);
+        return ogUrl[1];
+      }
+
+      console.log(`[Reddit] No canonical found at hop ${hop + 1}`);
+      break;
     }
 
-    const data = await response.json();
-    if (!data || data.length === 0) {
-      console.warn(`[Reddit] Apify web-scraper returned empty dataset`);
-      return null;
-    }
-
-    const item = data[0];
-    const resolvedUrl: string = item.resolvedUrl || item.url || item.loadedUrl || '';
-    console.log(`[Reddit] Apify web-scraper resolved to: ${resolvedUrl}`);
-
-    if (/\/comments\/[a-z0-9]+/i.test(resolvedUrl)) {
-      return resolvedUrl;
-    }
-
-    console.warn(`[Reddit] Resolved URL doesn't contain /comments/: ${resolvedUrl}`);
+    console.warn(`[Reddit] Proxy resolution failed after redirect chain (last: ${currentUrl})`);
     return null;
   } catch (e) {
-    const msg = e instanceof Error && e.name === 'AbortError'
-      ? 'timed out (20s)'
-      : e instanceof Error ? e.message : 'unknown error';
-    console.warn(`[Reddit] Apify web-scraper resolution failed: ${msg}`);
+    const msg = e instanceof Error ? e.message : 'unknown error';
+    console.warn(`[Reddit] Proxy resolution failed: ${msg}`);
     return null;
-  } finally {
-    clearTimeout(timeoutId);
   }
 }
 
