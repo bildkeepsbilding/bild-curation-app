@@ -670,25 +670,43 @@ async function fetchReddit(url: string) {
   let postData!: RedditPost;
   let commentsData: Array<{ kind: string; data: RedditComment & { replies?: { data?: { children?: Array<{ kind: string; data: RedditComment }> } } } }> = [];
 
-  // ── Strategy 0: Reddit Search API (works on Vercel — not IP-blocked) ──
-  try {
-    const result = await fetchRedditViaSearch(url);
-    postData = result.postData;
-    extractionMethod = 'search.reddit.com';
-    console.log(`[Reddit] Search API strategy succeeded`);
-
-    // Try to also fetch comments (may fail on Vercel, that's OK — post data is the priority)
-    commentsData = await fetchRedditCommentsOnly(url);
-    if (commentsData.length > 0) {
-      console.log(`[Reddit] Also fetched ${commentsData.length} comments`);
+  // ── Strategy 0: Reddit OAuth API (Priority — works on Vercel, ignores IP blocks) ──
+  const hasOAuth = !!(process.env.REDDIT_CLIENT_ID && process.env.REDDIT_CLIENT_SECRET);
+  if (hasOAuth) {
+    try {
+      const result = await fetchRedditOAuth(url);
+      postData = result.postData;
+      commentsData = result.commentsData;
+      extractionMethod = 'oauth.reddit.com';
+      console.log(`[Reddit] OAuth strategy succeeded`);
+    } catch (err0) {
+      const msg0 = err0 instanceof Error ? err0.message : 'unknown';
+      errors.push(`OAuth: ${msg0}`);
+      console.warn(`[Reddit] OAuth strategy failed: ${msg0}`);
     }
-  } catch (errSearch) {
-    const msgSearch = errSearch instanceof Error ? errSearch.message : 'unknown';
-    errors.push(`Search API: ${msgSearch}`);
-    console.warn(`[Reddit] Search API strategy failed: ${msgSearch}`);
   }
 
-  // ── Strategy 1: RSS feed (no auth, works on Vercel as backup) ──
+  // ── Strategy 1: Reddit Search API (works on Vercel — not IP-blocked) ──
+  if (!extractionMethod) {
+    try {
+      const result = await fetchRedditViaSearch(url);
+      postData = result.postData;
+      extractionMethod = 'search.reddit.com';
+      console.log(`[Reddit] Search API strategy succeeded`);
+
+      // Try to also fetch comments (may fail on Vercel, that's OK — post data is the priority)
+      commentsData = await fetchRedditCommentsOnly(url);
+      if (commentsData.length > 0) {
+        console.log(`[Reddit] Also fetched ${commentsData.length} comments`);
+      }
+    } catch (errSearch) {
+      const msgSearch = errSearch instanceof Error ? errSearch.message : 'unknown';
+      errors.push(`Search API: ${msgSearch}`);
+      console.warn(`[Reddit] Search API strategy failed: ${msgSearch}`);
+    }
+  }
+
+  // ── Strategy 2: RSS feed (no auth, works on Vercel as backup) ──
   if (!extractionMethod) {
     try {
       const rssResult = await fetchRedditRss(url);
@@ -719,24 +737,6 @@ async function fetchReddit(url: string) {
       const msgRss = errRss instanceof Error ? errRss.message : 'unknown';
       errors.push(`RSS: ${msgRss}`);
       console.warn(`[Reddit] RSS strategy failed: ${msgRss}`);
-    }
-  }
-
-  // Strategy 2: Reddit OAuth API (if credentials configured)
-  if (!extractionMethod) {
-    const hasOAuth = !!(process.env.REDDIT_CLIENT_ID && process.env.REDDIT_CLIENT_SECRET);
-    if (hasOAuth) {
-      try {
-        const result = await fetchRedditOAuth(url);
-        postData = result.postData;
-        commentsData = result.commentsData;
-        extractionMethod = 'oauth.reddit.com';
-        console.log(`[Reddit] OAuth strategy succeeded`);
-      } catch (err0) {
-        const msg0 = err0 instanceof Error ? err0.message : 'unknown';
-        errors.push(`OAuth: ${msg0}`);
-        console.warn(`[Reddit] OAuth strategy failed: ${msg0}`);
-      }
     }
   }
 
