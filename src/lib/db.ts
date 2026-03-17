@@ -406,13 +406,13 @@ export async function reorderCapture(projectId: string, captureId: string, direc
   const needsInit = captures.some(c => c.sortOrder == null || c.sortOrder === 0);
   if (needsInit) {
     const supabase = createClient();
-    for (let i = 0; i < captures.length; i++) {
-      await supabase
+    await Promise.all(captures.map((c, i) => {
+      c.sortOrder = (i + 1) * 10;
+      return supabase
         .from('captures')
-        .update({ sort_order: (i + 1) * 10 })
-        .eq('id', captures[i].id);
-      captures[i].sortOrder = (i + 1) * 10;
-    }
+        .update({ sort_order: c.sortOrder })
+        .eq('id', c.id);
+    }));
   }
 
   const idx = captures.findIndex(c => c.id === captureId);
@@ -539,10 +539,11 @@ export function normalizeUrl(url: string): string {
 
 export async function findCaptureByUrl(url: string): Promise<{ capture: Capture; project: Project } | null> {
   const normalized = normalizeUrl(url);
-  const captures = await getAllCaptures();
+  const [captures, projects] = await Promise.all([getAllCaptures(), getProjects()]);
+  const projectMap = new Map(projects.map(p => [p.id, p]));
   for (const c of captures) {
     if (normalizeUrl(c.url) === normalized) {
-      const project = await getProject(c.projectId);
+      const project = projectMap.get(c.projectId);
       if (project) return { capture: c, project };
     }
   }

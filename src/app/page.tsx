@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { getProjects, getCaptures, getAllCaptures, getProjectMap, createProject, deleteProject, ensureInbox, getUniqueContentTag, decodeEntities, type Project, type Capture } from '@/lib/db';
 import UserMenu from '@/components/UserMenu';
@@ -29,6 +29,7 @@ export default function Home() {
   const [toast, setToast] = useState<string | null>(null);
   const [unsortedCollapsed, setUnsortedCollapsed] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
+  const searchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   function showToast(msg: string) {
     setToast(msg);
@@ -96,7 +97,6 @@ export default function Home() {
   }
 
   async function handleSearch(query: string) {
-    setSearchQuery(query);
     if (!query.trim()) {
       setSearchResults([]);
       return;
@@ -395,7 +395,13 @@ export default function Home() {
                   <input
                     type="text"
                     value={searchQuery}
-                    onChange={(e) => handleSearch(e.target.value)}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      setSearchQuery(val);
+                      if (searchTimerRef.current) clearTimeout(searchTimerRef.current);
+                      if (!val.trim()) { setSearchResults([]); return; }
+                      searchTimerRef.current = setTimeout(() => handleSearch(val), 200);
+                    }}
                     placeholder="Search captures..."
                     className="w-full pl-9 pr-4 py-2 rounded-lg text-[13px] outline-none"
                     style={{

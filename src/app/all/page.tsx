@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import {
   getAllCaptures,
@@ -113,14 +113,20 @@ export default function AllCapturesPage() {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [confirmDelete, moveTarget, copyTarget, viewing]);
 
-  const filteredCaptures = activeFilter === 'all'
-    ? captures
-    : captures.filter(c => c.platform === activeFilter);
+  const filteredCaptures = useMemo(() =>
+    activeFilter === 'all'
+      ? captures
+      : captures.filter(c => c.platform === activeFilter),
+    [captures, activeFilter]
+  );
 
-  const platformCounts: Record<string, number> = {};
-  for (const c of captures) {
-    platformCounts[c.platform] = (platformCounts[c.platform] || 0) + 1;
-  }
+  const platformCounts = useMemo(() => {
+    const counts: Record<string, number> = {};
+    for (const c of captures) {
+      counts[c.platform] = (counts[c.platform] || 0) + 1;
+    }
+    return counts;
+  }, [captures]);
 
   async function handleCardExportPdf(capture: Capture) {
     setMenuOpen(null);
@@ -580,7 +586,7 @@ export default function AllCapturesPage() {
             {/* Hero image */}
             {viewing.images && viewing.images.length > 0 && (
               <div className="relative w-full" style={{ maxHeight: '300px', overflow: 'hidden' }}>
-                <img src={viewing.images[0]} alt="" className="w-full object-cover" referrerPolicy="no-referrer" />
+                <img src={viewing.images[0]} alt="" className="w-full object-cover" loading="lazy" referrerPolicy="no-referrer" />
               </div>
             )}
 
@@ -595,7 +601,7 @@ export default function AllCapturesPage() {
               {viewing.images && viewing.images.length > 1 && (
                 <div className="mt-4 grid grid-cols-2 gap-2">
                   {viewing.images.slice(1).map((img, i) => (
-                    <img key={i} src={img} alt="" className="w-full rounded-lg object-cover" style={{ maxHeight: '200px' }} referrerPolicy="no-referrer" />
+                    <img key={i} src={img} alt="" className="w-full rounded-lg object-cover" style={{ maxHeight: '200px' }} loading="lazy" referrerPolicy="no-referrer" />
                   ))}
                 </div>
               )}

@@ -183,7 +183,7 @@ export default function SharedCapturePage() {
       {/* Hero section */}
       {hasImage ? (
         <div className="relative w-full" style={{ maxHeight: '400px', overflow: 'hidden' }}>
-          <img src={capture.images[0]} alt="" className="w-full object-cover" style={{ maxHeight: '400px' }} referrerPolicy="no-referrer" />
+          <img src={capture.images[0]} alt="" className="w-full object-cover" style={{ maxHeight: '400px' }} loading="lazy" referrerPolicy="no-referrer" />
           <div className="absolute inset-0" style={{ background: 'linear-gradient(to top, var(--bg) 0%, rgba(0,0,0,0.3) 50%, rgba(0,0,0,0.1) 100%)' }} />
         </div>
       ) : (

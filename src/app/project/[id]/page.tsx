@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import {
   getProject,
@@ -160,14 +160,20 @@ export default function ProjectPage() {
 
   const isInbox = project?.is_inbox ?? false;
 
-  const filteredCaptures = activeFilter === 'all'
-    ? captures
-    : captures.filter(c => c.platform === activeFilter);
+  const filteredCaptures = useMemo(() =>
+    activeFilter === 'all'
+      ? captures
+      : captures.filter(c => c.platform === activeFilter),
+    [captures, activeFilter]
+  );
 
-  const platformCounts: Record<string, number> = {};
-  for (const c of captures) {
-    platformCounts[c.platform] = (platformCounts[c.platform] || 0) + 1;
-  }
+  const platformCounts = useMemo(() => {
+    const counts: Record<string, number> = {};
+    for (const c of captures) {
+      counts[c.platform] = (counts[c.platform] || 0) + 1;
+    }
+    return counts;
+  }, [captures]);
 
   async function handleCheckDuplicate() {
     const url = urlInput.trim();
@@ -615,7 +621,7 @@ export default function ProjectPage() {
             {/* Hero image full-bleed */}
             {viewing.images && viewing.images.length > 0 && !viewing.body?.includes('[image:') && (
               <div className="w-full" style={{ maxHeight: '320px', overflow: 'hidden' }}>
-                <img src={viewing.images[0]} alt="" className="w-full object-cover" style={{ maxHeight: '320px' }} referrerPolicy="no-referrer" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
+                <img src={viewing.images[0]} alt="" className="w-full object-cover" style={{ maxHeight: '320px' }} loading="lazy" referrerPolicy="no-referrer" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
               </div>
             )}
 

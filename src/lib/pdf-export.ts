@@ -1,5 +1,12 @@
-import jsPDF from 'jspdf';
+import type jsPDFType from 'jspdf';
 import { type Project, type Capture, type Platform, formatEngagement, PLATFORM_DISPLAY, getUniqueContentTag } from './db';
+
+type jsPDF = jsPDFType;
+
+async function loadJsPDF(): Promise<typeof jsPDFType> {
+  const mod = await import('jspdf');
+  return mod.default;
+}
 
 // ── Layout constants ──
 
@@ -340,7 +347,8 @@ export async function exportProjectAsPdf(
 
   onProgress?.('Generating PDF...');
 
-  const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+  const JsPDF = await loadJsPDF();
+  const doc = new JsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
   let y = MARGIN;
 
   // ── Header ──
@@ -418,7 +426,8 @@ export async function exportCapturePdf(
   const imageMap = await prefetchImages([capture]);
 
   onProgress?.('Generating PDF...');
-  const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+  const JsPDF = await loadJsPDF();
+  const doc = new JsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
   let y = MARGIN;
 
   // Header — project name
