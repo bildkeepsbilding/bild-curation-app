@@ -23,6 +23,7 @@ import {
 } from '@/lib/db';
 import { exportProjectAsPdf, exportCapturePdf } from '@/lib/pdf-export';
 import UserMenu from '@/components/UserMenu';
+import { CaptureMetadataHeader } from '@/components/CaptureRenderer';
 
 const PLATFORMS: { key: Platform | 'all'; label: string; color: string }[] = [
   { key: 'all', label: 'All', color: '#f0f0f0' },
@@ -633,42 +634,7 @@ export default function ProjectPage() {
               </h1>
 
               {/* Metadata bar */}
-              <div className="flex flex-wrap items-center gap-2 mb-8 pb-5" style={{ borderBottom: '1px solid var(--border-subtle)' }}>
-                <span className="px-2 py-0.5 rounded-md text-xs font-semibold" style={{ background: PLATFORM_LABELS[viewing.platform]?.color + '20', color: PLATFORM_LABELS[viewing.platform]?.color }}>
-                  {PLATFORM_LABELS[viewing.platform]?.label}
-                </span>
-                {Boolean(viewing.metadata?.isArticle) && viewing.platform === 'twitter' && (
-                  <span className="px-2 py-0.5 rounded-md text-xs font-semibold" style={{ background: '#8B5CF620', color: '#8B5CF6' }}>
-                    Article
-                  </span>
-                )}
-                <span className="text-xs" style={{ color: 'var(--text-tertiary)' }}>{viewing.author}</span>
-                <span style={{ color: 'var(--border)' }}>·</span>
-                <span className="text-xs" style={{ color: 'var(--text-tertiary)' }}>{formatTime(viewing.createdAt)}</span>
-
-                {/* Engagement stats inline */}
-                {viewing.metadata && viewing.platform === 'twitter' && (
-                  <>
-                    {viewing.metadata.likes != null && <><span style={{ color: 'var(--border)' }}>·</span><span className="text-xs" style={{ color: 'var(--text-tertiary)' }}>♥ {String(viewing.metadata.likes)}</span></>}
-                    {viewing.metadata.retweets != null && <><span style={{ color: 'var(--border)' }}>·</span><span className="text-xs" style={{ color: 'var(--text-tertiary)' }}>⟲ {String(viewing.metadata.retweets)}</span></>}
-                    {viewing.metadata.views != null && <><span style={{ color: 'var(--border)' }}>·</span><span className="text-xs" style={{ color: 'var(--text-tertiary)' }}>👁 {String(viewing.metadata.views)}</span></>}
-                  </>
-                )}
-                {viewing.metadata && viewing.platform === 'reddit' && (
-                  <>
-                    <span style={{ color: 'var(--border)' }}>·</span>
-                    <span className="text-xs" style={{ color: 'var(--text-tertiary)' }}>r/{String(viewing.metadata.subreddit)}</span>
-                    <span style={{ color: 'var(--border)' }}>·</span>
-                    <span className="text-xs" style={{ color: 'var(--text-tertiary)' }}>↑{String(viewing.metadata.score)}</span>
-                  </>
-                )}
-                {viewing.metadata && viewing.platform === 'github' && (
-                  <>
-                    {viewing.metadata.stars != null && <><span style={{ color: 'var(--border)' }}>·</span><span className="text-xs" style={{ color: 'var(--text-tertiary)' }}>⭐ {String(viewing.metadata.stars)}</span></>}
-                    {viewing.metadata.language && <><span style={{ color: 'var(--border)' }}>·</span><span className="text-xs" style={{ color: 'var(--text-tertiary)' }}>{String(viewing.metadata.language)}</span></>}
-                  </>
-                )}
-              </div>
+              <CaptureMetadataHeader capture={viewing} />
 
               {/* Body with article typography and markdown rendering */}
               {viewing.body?.includes('[image:') ? (

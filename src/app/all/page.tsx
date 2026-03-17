@@ -19,6 +19,7 @@ import {
 } from '@/lib/db';
 import { exportCapturePdf } from '@/lib/pdf-export';
 import UserMenu from '@/components/UserMenu';
+import { CaptureMetadataHeader } from '@/components/CaptureRenderer';
 
 const PLATFORMS: { key: Platform | 'all'; label: string; color: string }[] = [
   { key: 'all', label: 'All', color: '#f0f0f0' },
@@ -570,13 +571,9 @@ export default function AllCapturesPage() {
             {/* Header */}
             <div className="flex items-center justify-between px-5 py-4" style={{ borderBottom: '1px solid var(--border-subtle)' }}>
               <div className="flex items-center gap-2 min-w-0">
-                <span className="px-2 py-0.5 rounded-md text-[10px] font-semibold flex-shrink-0" style={{ background: PLATFORM_LABELS[viewing.platform]?.color + '20', color: PLATFORM_LABELS[viewing.platform]?.color }}>
-                  {PLATFORM_LABELS[viewing.platform]?.label}
-                </span>
                 <span className="px-1.5 py-0.5 rounded text-[10px] font-medium flex-shrink-0" style={{ background: 'var(--bg-hover)', color: 'var(--text-tertiary)' }}>
                   {projectMap[viewing.projectId]?.name || 'Unknown'}
                 </span>
-                <span className="text-xs truncate" style={{ color: 'var(--text-tertiary)' }}>{viewing.author}</span>
               </div>
               <button onClick={() => setViewing(null)} className="p-1 rounded-lg flex-shrink-0" style={{ color: 'var(--text-tertiary)' }}>
                 <svg width="18" height="18" viewBox="0 0 16 16" fill="none"><path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" /></svg>
@@ -593,6 +590,7 @@ export default function AllCapturesPage() {
             {/* Content */}
             <div className="px-5 py-4">
               <h2 className="text-lg font-bold mb-3" style={{ color: 'var(--text-primary)', lineHeight: 1.3 }}>{decodeEntities(viewing.title)}</h2>
+              <CaptureMetadataHeader capture={viewing} />
               <div className="text-sm leading-relaxed" style={{ color: 'var(--text-secondary)' }}>
                 {renderMarkdownBody(viewing.body)}
               </div>

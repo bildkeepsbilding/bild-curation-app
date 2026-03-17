@@ -10,6 +10,7 @@ import {
   type Project,
   type Capture,
 } from '@/lib/db';
+import { CaptureMetadataHeader } from '@/components/CaptureRenderer';
 
 const PLATFORM_LABELS: Record<string, { label: string; color: string }> = {
   reddit: { label: 'Reddit', color: '#FF4500' },
@@ -222,35 +223,8 @@ export default function SharedCapturePage() {
 
       {/* Content */}
       <article className="mx-auto px-5 py-8" style={{ maxWidth: '720px' }}>
-        {/* Platform badge + metadata */}
-        <div className="flex flex-wrap items-center gap-2 mb-5">
-          <span className="px-2.5 py-1 rounded-md text-xs font-semibold" style={{ background: platLabel.color + '20', color: platLabel.color }}>
-            {platLabel.label}
-          </span>
-          <span className="text-sm" style={{ color: 'var(--text-tertiary)' }}>{capture.author}</span>
-          <span style={{ color: 'var(--border)' }}>·</span>
-          <span className="text-sm" style={{ color: 'var(--text-tertiary)' }}>{formatTime(capture.createdAt)}</span>
-
-          {/* Inline engagement stats */}
-          {capture.platform === 'twitter' && m && (
-            <>
-              {m.likes != null && <><span style={{ color: 'var(--border)' }}>·</span><span className="text-sm" style={{ color: 'var(--text-tertiary)' }}>&#x2665; {String(m.likes)}</span></>}
-              {m.retweets != null && <><span style={{ color: 'var(--border)' }}>·</span><span className="text-sm" style={{ color: 'var(--text-tertiary)' }}>&#x21BB; {String(m.retweets)}</span></>}
-            </>
-          )}
-          {capture.platform === 'reddit' && m && (
-            <>
-              {m.subreddit && <><span style={{ color: 'var(--border)' }}>·</span><span className="text-sm" style={{ color: 'var(--text-tertiary)' }}>r/{String(m.subreddit)}</span></>}
-              {m.score != null && <><span style={{ color: 'var(--border)' }}>·</span><span className="text-sm" style={{ color: 'var(--text-tertiary)' }}>&#x2191;{String(m.score)}</span></>}
-            </>
-          )}
-          {capture.platform === 'github' && m && (
-            <>
-              {m.stars != null && <><span style={{ color: 'var(--border)' }}>·</span><span className="text-sm" style={{ color: 'var(--text-tertiary)' }}>&#x2B50; {String(m.stars)}</span></>}
-              {m.language && <><span style={{ color: 'var(--border)' }}>·</span><span className="text-sm" style={{ color: 'var(--text-tertiary)' }}>{String(m.language)}</span></>}
-            </>
-          )}
-        </div>
+        {/* Platform-aware metadata */}
+        <CaptureMetadataHeader capture={capture} />
 
         {/* Title */}
         <h1 className="font-bold mb-8" style={{ color: 'var(--text-primary)', fontSize: '32px', lineHeight: 1.2, letterSpacing: '-0.02em' }}>
