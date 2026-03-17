@@ -23,7 +23,7 @@ import {
 } from '@/lib/db';
 import { exportProjectAsPdf, exportCapturePdf } from '@/lib/pdf-export';
 import UserMenu from '@/components/UserMenu';
-import { CaptureMetadataHeader } from '@/components/CaptureRenderer';
+import { CaptureMetadataHeader, GITHUB_LANG_COLORS } from '@/components/CaptureRenderer';
 
 const PLATFORMS: { key: Platform | 'all'; label: string; color: string }[] = [
   { key: 'all', label: 'All', color: '#f0f0f0' },
@@ -619,12 +619,14 @@ export default function ProjectPage() {
 
           {/* Scrollable content */}
           <div className="flex-1 overflow-y-auto overflow-x-hidden">
-            {/* Hero image full-bleed */}
-            {viewing.images && viewing.images.length > 0 && !viewing.body?.includes('[image:') && (
-              <div className="w-full" style={{ maxHeight: '320px', overflow: 'hidden' }}>
-                <img src={viewing.images[0]} alt="" className="w-full object-cover" style={{ maxHeight: '320px' }} loading="lazy" referrerPolicy="no-referrer" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
+            {/* Hero image — constrained, rounded, centered; skip for GitHub repos (show language accent bar instead) */}
+            {viewing.platform === 'github' ? (
+              <div className="w-full" style={{ height: '6px', background: GITHUB_LANG_COLORS[(viewing.metadata as Record<string, string>)?.language] || PLATFORM_LABELS.github.color }} />
+            ) : viewing.images && viewing.images.length > 0 && !viewing.body?.includes('[image:') ? (
+              <div className="px-5 pt-5">
+                <img src={viewing.images[0]} alt="" className="w-full rounded-lg object-cover mx-auto" style={{ maxHeight: '300px' }} loading="lazy" referrerPolicy="no-referrer" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
               </div>
-            )}
+            ) : null}
 
             {/* Reading column */}
             <div className="mx-auto px-8 py-6" style={{ maxWidth: '720px' }}>

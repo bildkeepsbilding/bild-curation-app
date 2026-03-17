@@ -106,9 +106,9 @@ function TwitterMetadataHeader({ capture }: { capture: Capture }) {
     : capture.url.split('/').slice(0, 4).join('/');
 
   return (
-    <div className="mb-8 pb-5" style={{ borderBottom: '1px solid var(--border-subtle)' }}>
+    <div className="mb-6 pb-4" style={{ borderBottom: '1px solid var(--border-subtle)' }}>
       {/* Line 1: badges + handle + date */}
-      <div className="flex flex-wrap items-center gap-2">
+      <div className="flex flex-wrap items-center gap-1.5">
         {isArticle && (
           <span className="px-2 py-0.5 rounded-md text-xs font-semibold" style={{ background: '#8B5CF620', color: '#8B5CF6' }}>
             Article
@@ -136,7 +136,7 @@ function TwitterMetadataHeader({ capture }: { capture: Capture }) {
 
       {/* Line 2: engagement stats (hide when zero or missing) */}
       {m && (Number(m.likes) > 0 || Number(m.retweets) > 0 || Number(m.views) > 0) && (
-        <div className="flex items-center gap-3 mt-1.5">
+        <div className="flex items-center gap-3 mt-1">
           {m.likes != null && Number(m.likes) > 0 && (
             <span className="text-xs" style={{ color: 'var(--text-tertiary)' }}>
               ♥ {formatCompact(Number(m.likes))}
@@ -174,9 +174,9 @@ function GitHubMetadataHeader({ capture }: { capture: Capture }) {
   const topics = Array.isArray(m?.topics) ? (m.topics as string[]) : [];
 
   return (
-    <div className="mb-8 pb-5" style={{ borderBottom: '1px solid var(--border-subtle)' }}>
+    <div className="mb-6 pb-4" style={{ borderBottom: '1px solid var(--border-subtle)' }}>
       {/* Line 1: repo path + language */}
-      <div className="flex flex-wrap items-center gap-2">
+      <div className="flex flex-wrap items-center gap-1.5">
         <a
           href={`https://github.com/${repoPath}`}
           target="_blank"
@@ -199,7 +199,7 @@ function GitHubMetadataHeader({ capture }: { capture: Capture }) {
 
       {/* Line 2: stats (only for repo-level, not file captures) */}
       {!filePath && m && (m.stars != null || m.forks != null || m.issues != null) && (
-        <div className="flex items-center gap-3 mt-1.5">
+        <div className="flex items-center gap-3 mt-1">
           {m.stars != null && Number(m.stars) > 0 && (
             <span className="text-xs" style={{ color: 'var(--text-tertiary)' }}>
               ⭐ {formatCompact(Number(m.stars))}
@@ -220,7 +220,7 @@ function GitHubMetadataHeader({ capture }: { capture: Capture }) {
 
       {/* Line 3: topics */}
       {topics.length > 0 && (
-        <div className="flex flex-wrap items-center gap-1.5 mt-2">
+        <div className="flex flex-wrap items-center gap-1.5 mt-1.5">
           {topics.map((topic) => (
             <span
               key={topic}
@@ -262,9 +262,9 @@ function ArticleMetadataHeader({ capture }: { capture: Capture }) {
   }
 
   return (
-    <div className="mb-8 pb-5" style={{ borderBottom: '1px solid var(--border-subtle)' }}>
-      {/* Line 1: site · author · date */}
-      <div className="flex flex-wrap items-center gap-2">
+    <div className="mb-6 pb-4" style={{ borderBottom: '1px solid var(--border-subtle)' }}>
+      {/* Line 1: site · author · date · read time */}
+      <div className="flex flex-wrap items-center gap-1.5">
         {siteName && (
           <>
             <span className="text-xs font-semibold" style={{ color: 'var(--text-secondary)' }}>
@@ -280,10 +280,7 @@ function ArticleMetadataHeader({ capture }: { capture: Capture }) {
         <span className="text-xs" style={{ color: 'var(--text-tertiary)' }}>
           {dateStr}
         </span>
-      </div>
-
-      {/* Line 2: read time */}
-      <div className="mt-1.5">
+        <Dot />
         <span className="text-xs" style={{ color: 'var(--text-tertiary)' }}>
           ~{readTime} min read
         </span>
@@ -302,9 +299,9 @@ function RedditMetadataHeader({ capture }: { capture: Capture }) {
   const numComments = m?.numComments != null ? Number(m.numComments) : null;
 
   return (
-    <div className="mb-8 pb-5" style={{ borderBottom: '1px solid var(--border-subtle)' }}>
+    <div className="mb-6 pb-4" style={{ borderBottom: '1px solid var(--border-subtle)' }}>
       {/* Line 1: subreddit · flair · author */}
-      <div className="flex flex-wrap items-center gap-2">
+      <div className="flex flex-wrap items-center gap-1.5">
         {subreddit && (
           <a
             href={`https://reddit.com/r/${subreddit}`}
@@ -325,14 +322,20 @@ function RedditMetadataHeader({ capture }: { capture: Capture }) {
           </>
         )}
         <Dot />
-        <span className="text-xs font-mono" style={{ color: 'var(--text-tertiary)' }}>
+        <a
+          href={`https://reddit.com/user/${capture.author.replace(/^u\//, '')}`}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="text-xs font-mono hover:underline"
+          style={{ color: 'var(--text-tertiary)' }}
+        >
           u/{capture.author.replace(/^u\//, '')}
-        </span>
+        </a>
       </div>
 
       {/* Line 2: score + comments (hide if score is 0 — RSS fallback) */}
       {((score != null && score > 0) || (numComments != null && numComments > 0)) && (
-        <div className="flex items-center gap-3 mt-1.5">
+        <div className="flex items-center gap-3 mt-1">
           {score != null && score > 0 && (
             <span className="text-xs" style={{ color: 'var(--text-tertiary)' }}>
               ↑ {formatCompact(score)}
@@ -356,8 +359,8 @@ function GenericMetadataHeader({ capture }: { capture: Capture }) {
   const platformLabel = capture.platform === 'twitter' ? 'X' : capture.platform.charAt(0).toUpperCase() + capture.platform.slice(1);
 
   return (
-    <div className="mb-8 pb-5" style={{ borderBottom: '1px solid var(--border-subtle)' }}>
-      <div className="flex flex-wrap items-center gap-2">
+    <div className="mb-6 pb-4" style={{ borderBottom: '1px solid var(--border-subtle)' }}>
+      <div className="flex flex-wrap items-center gap-1.5">
         <span className="px-2 py-0.5 rounded-md text-xs font-semibold" style={{ background: platformColor + '20', color: platformColor }}>
           {platformLabel}
         </span>
@@ -387,4 +390,4 @@ export function CaptureMetadataHeader({ capture }: { capture: Capture }) {
 }
 
 // Re-export helpers that pages may need
-export { formatCompact, formatDate, formatFullDate, PLATFORM_COLORS };
+export { formatCompact, formatDate, formatFullDate, PLATFORM_COLORS, GITHUB_LANG_COLORS };

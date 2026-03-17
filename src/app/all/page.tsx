@@ -19,7 +19,7 @@ import {
 } from '@/lib/db';
 import { exportCapturePdf } from '@/lib/pdf-export';
 import UserMenu from '@/components/UserMenu';
-import { CaptureMetadataHeader } from '@/components/CaptureRenderer';
+import { CaptureMetadataHeader, GITHUB_LANG_COLORS } from '@/components/CaptureRenderer';
 
 const PLATFORMS: { key: Platform | 'all'; label: string; color: string }[] = [
   { key: 'all', label: 'All', color: '#f0f0f0' },
@@ -580,12 +580,14 @@ export default function AllCapturesPage() {
               </button>
             </div>
 
-            {/* Hero image */}
-            {viewing.images && viewing.images.length > 0 && (
-              <div className="relative w-full" style={{ maxHeight: '300px', overflow: 'hidden' }}>
-                <img src={viewing.images[0]} alt="" className="w-full object-cover" loading="lazy" referrerPolicy="no-referrer" />
+            {/* Hero image — constrained, rounded; GitHub gets language accent bar */}
+            {viewing.platform === 'github' ? (
+              <div className="w-full" style={{ height: '6px', background: GITHUB_LANG_COLORS[(viewing.metadata as Record<string, string>)?.language] || '#8B5CF6' }} />
+            ) : viewing.images && viewing.images.length > 0 ? (
+              <div className="px-5 pt-4">
+                <img src={viewing.images[0]} alt="" className="w-full rounded-lg object-cover mx-auto" style={{ maxHeight: '300px' }} loading="lazy" referrerPolicy="no-referrer" />
               </div>
-            )}
+            ) : null}
 
             {/* Content */}
             <div className="px-5 py-4">
