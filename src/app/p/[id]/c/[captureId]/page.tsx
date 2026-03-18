@@ -12,7 +12,7 @@ import {
   type Project,
   type Capture,
 } from '@/lib/db';
-import { CaptureMetadataHeader, GITHUB_LANG_COLORS } from '@/components/CaptureRenderer';
+import { CaptureMetadataHeader, CaptureBody, GITHUB_LANG_COLORS } from '@/components/CaptureRenderer';
 
 const PLATFORM_LABELS: Record<string, { label: string; color: string }> = {
   reddit: { label: 'Reddit', color: '#FF4500' },
@@ -69,71 +69,6 @@ export default function SharedCapturePage() {
     return new Date(ts).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
   }
 
-  function renderMarkdownLine(line: string, key: string): React.ReactNode {
-    function renderInline(text: string): React.ReactNode[] {
-      const parts: React.ReactNode[] = [];
-      const regex = /(\*\*(.+?)\*\*)|(`([^`]+)`)|(\[([^\]]+)\]\(([^)]+)\))/g;
-      let lastIndex = 0;
-      let match;
-      let partKey = 0;
-      while ((match = regex.exec(text)) !== null) {
-        if (match.index > lastIndex) parts.push(decodeEntities(text.slice(lastIndex, match.index)));
-        if (match[1]) parts.push(<strong key={partKey++} style={{ color: 'var(--text-primary)', fontWeight: 600 }}>{decodeEntities(match[2])}</strong>);
-        else if (match[3]) parts.push(<code key={partKey++} className="font-mono text-[0.9em] px-1.5 py-0.5 rounded" style={{ background: 'var(--bg)', color: 'var(--accent)' }}>{decodeEntities(match[4])}</code>);
-        else if (match[5]) parts.push(<a key={partKey++} href={match[7]} target="_blank" rel="noopener noreferrer" style={{ color: 'var(--accent)', textDecoration: 'underline', textUnderlineOffset: '2px' }}>{decodeEntities(match[6])}</a>);
-        lastIndex = match.index + match[0].length;
-      }
-      if (lastIndex < text.length) parts.push(decodeEntities(text.slice(lastIndex)));
-      return parts;
-    }
-
-    const h1Match = line.match(/^# (.+)$/);
-    if (h1Match) return <h2 key={key} className="font-bold mt-8 mb-3" style={{ fontSize: '22px', color: 'var(--text-primary)', lineHeight: 1.3 }}>{renderInline(h1Match[1])}</h2>;
-    const h2Match = line.match(/^## (.+)$/);
-    if (h2Match) return <h3 key={key} className="font-bold mt-7 mb-2" style={{ fontSize: '19px', color: 'var(--text-primary)', lineHeight: 1.3 }}>{renderInline(h2Match[1])}</h3>;
-    const h3Match = line.match(/^### (.+)$/);
-    if (h3Match) return <h4 key={key} className="font-semibold mt-5 mb-2" style={{ fontSize: '17px', color: 'var(--text-primary)', lineHeight: 1.4 }}>{renderInline(h3Match[1])}</h4>;
-
-    if (/^---+$/.test(line.trim())) return <hr key={key} className="my-6" style={{ border: 'none', borderTop: '1px solid var(--border-subtle)' }} />;
-
-    const ulMatch = line.match(/^[-*] (.+)$/);
-    if (ulMatch) return <div key={key} className="flex gap-2 ml-1 mb-1"><span style={{ color: 'var(--text-tertiary)' }}>&#x2022;</span><span>{renderInline(ulMatch[1])}</span></div>;
-
-    if (line.startsWith('> ')) return <blockquote key={key} className="pl-4 my-1" style={{ borderLeft: '3px solid var(--border)', color: 'var(--text-tertiary)', fontStyle: 'italic' }}>{renderInline(line.slice(2))}</blockquote>;
-
-    if (line.trim() === '') return <div key={key} className="h-3" />;
-
-    return <p key={key} className="mb-1">{renderInline(line)}</p>;
-  }
-
-  function renderMarkdownBody(body: string): React.ReactNode[] {
-    const lines = body.split('\n');
-    const elements: React.ReactNode[] = [];
-    let i = 0;
-    while (i < lines.length) {
-      if (lines[i].startsWith('```')) {
-        const lang = lines[i].slice(3).trim();
-        const codeLines: string[] = [];
-        i++;
-        while (i < lines.length && !lines[i].startsWith('```')) {
-          codeLines.push(lines[i]);
-          i++;
-        }
-        i++;
-        elements.push(
-          <pre key={`code-${i}`} className="rounded-xl px-4 py-3 my-4 overflow-x-auto text-sm font-mono" style={{ background: 'var(--bg)', border: '1px solid var(--border-subtle)', color: 'var(--text-secondary)', lineHeight: 1.6 }}>
-            {lang && <div className="text-[10px] uppercase tracking-wider mb-2" style={{ color: 'var(--text-tertiary)' }}>{lang}</div>}
-            <code>{codeLines.join('\n')}</code>
-          </pre>
-        );
-        continue;
-      }
-      elements.push(renderMarkdownLine(lines[i], `line-${i}`));
-      i++;
-    }
-    return elements;
-  }
-
   if (loading) {
     return (
       <main className="min-h-dvh safe-top safe-bottom">
@@ -187,43 +122,17 @@ export default function SharedCapturePage() {
           {decodeEntities(capture.title)}
         </h1>
 
-        {/* Full body */}
-        {capture.body?.includes('[image:') ? (
-          <div style={{ fontSize: '17px', lineHeight: 1.8, color: 'var(--text-secondary)', overflowWrap: 'break-word', wordBreak: 'break-word' }}>
-            {capture.body.split(/(\[image:[^\]]+\])/).map((part, i) => {
-              const imgMatch = part.match(/^\[image:(.+)\]$/);
-              if (imgMatch) {
-                return (
-                  <div key={i} className="w-full my-8">
-                    <img 
-                      src={imgMatch[1]} 
-                      alt="Article image" 
-                      className="w-full h-auto rounded-xl" 
-                      style={{ border: '1px solid var(--border-subtle)', maxWidth: '100%', objectFit: 'contain' }} 
-                      loading="lazy" 
-                      referrerPolicy="no-referrer" 
-                      onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} 
-                    />
-                  </div>
-                );
-              }
-              return part ? <div key={i}>{renderMarkdownBody(part)}</div> : null;
-            })}
+        {/* Additional images (non-hero, non-inline) */}
+        {!capture.body?.includes('[image:') && capture.images && capture.images.length > 1 && (
+          <div className="mb-8 space-y-4">
+            {capture.images.slice(1).map((img, i) => (
+              <img key={i} src={img} alt={`Image ${i + 2}`} className="w-full rounded-xl" style={{ border: '1px solid var(--border-subtle)' }} loading="lazy" referrerPolicy="no-referrer" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
+            ))}
           </div>
-        ) : (
-          <>
-            {capture.images && capture.images.length > 1 && (
-              <div className="mb-8 space-y-4">
-                {capture.images.slice(1).map((img, i) => (
-                  <img key={i} src={img} alt={`Image ${i + 2}`} className="w-full rounded-xl" style={{ border: '1px solid var(--border-subtle)' }} loading="lazy" referrerPolicy="no-referrer" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
-                ))}
-              </div>
-            )}
-            <div style={{ fontSize: '17px', lineHeight: 1.8, color: 'var(--text-secondary)' }}>
-              {renderMarkdownBody(capture.body)}
-            </div>
-          </>
         )}
+
+        {/* Platform-aware body rendering */}
+        <CaptureBody capture={capture} />
 
         {/* Actions: View original + Package for Claude */}
         <div className="flex items-center gap-4 mt-6 mb-2">

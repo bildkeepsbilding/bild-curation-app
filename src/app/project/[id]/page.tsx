@@ -26,7 +26,7 @@ import {
 } from '@/lib/db';
 import { exportProjectAsPdf, exportCapturePdf } from '@/lib/pdf-export';
 import UserMenu from '@/components/UserMenu';
-import { CaptureMetadataHeader, GITHUB_LANG_COLORS } from '@/components/CaptureRenderer';
+import { CaptureMetadataHeader, CaptureBody, GITHUB_LANG_COLORS } from '@/components/CaptureRenderer';
 
 const PLATFORMS: { key: Platform | 'all'; label: string; color: string }[] = [
   { key: 'all', label: 'All', color: '#f0f0f0' },
@@ -651,31 +651,17 @@ export default function ProjectPage() {
               {/* Metadata bar */}
               <CaptureMetadataHeader capture={viewing} />
 
-              {/* Body with article typography and markdown rendering */}
-              {viewing.body?.includes('[image:') ? (
-                <div style={{ fontSize: '16px', lineHeight: 1.75, color: 'var(--text-secondary)' }}>
-                  {viewing.body.split(/(\[image:[^\]]+\])/).map((part, i) => {
-                    const imgMatch = part.match(/^\[image:(.+)\]$/);
-                    if (imgMatch) {
-                      return <img key={i} src={imgMatch[1]} alt="Article image" className="w-full rounded-xl my-6" style={{ border: '1px solid var(--border-subtle)' }} loading="lazy" referrerPolicy="no-referrer" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />;
-                    }
-                    return part ? <div key={i}>{renderMarkdownBody(part)}</div> : null;
-                  })}
+              {/* Additional images (non-hero, non-inline) */}
+              {!viewing.body?.includes('[image:') && viewing.images && viewing.images.length > 1 && (
+                <div className="mb-8 grid grid-cols-2 gap-2">
+                  {viewing.images.slice(1).map((img, i) => (
+                    <img key={i} src={img} alt={`Image ${i + 2}`} className="w-full h-auto rounded-lg object-cover" style={{ border: '1px solid var(--border-subtle)' }} loading="lazy" referrerPolicy="no-referrer" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
+                  ))}
                 </div>
-              ) : (
-                <>
-                  {viewing.images && viewing.images.length > 1 && (
-                    <div className="mb-8 grid grid-cols-2 gap-2">
-                      {viewing.images.slice(1).map((img, i) => (
-                        <img key={i} src={img} alt={`Image ${i + 2}`} className="w-full h-auto rounded-lg object-cover" style={{ border: '1px solid var(--border-subtle)' }} loading="lazy" referrerPolicy="no-referrer" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
-                      ))}
-                    </div>
-                  )}
-                  <div style={{ fontSize: '16px', lineHeight: 1.75, color: 'var(--text-secondary)' }}>
-                    {renderMarkdownBody(viewing.body)}
-                  </div>
-                </>
               )}
+
+              {/* Platform-aware body rendering */}
+              <CaptureBody capture={viewing} />
 
               {/* Actions: View original + Package for Claude */}
               <div className="flex items-center gap-4 mt-6 mb-2">

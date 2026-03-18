@@ -19,7 +19,7 @@ import {
 } from '@/lib/db';
 import { exportCapturePdf } from '@/lib/pdf-export';
 import UserMenu from '@/components/UserMenu';
-import { CaptureMetadataHeader, GITHUB_LANG_COLORS } from '@/components/CaptureRenderer';
+import { CaptureMetadataHeader, CaptureBody, GITHUB_LANG_COLORS } from '@/components/CaptureRenderer';
 
 const PLATFORMS: { key: Platform | 'all'; label: string; color: string }[] = [
   { key: 'all', label: 'All', color: '#f0f0f0' },
@@ -593,9 +593,7 @@ export default function AllCapturesPage() {
             <div className="px-5 py-4">
               <h2 className="text-lg font-bold mb-3" style={{ color: 'var(--text-primary)', lineHeight: 1.3 }}>{decodeEntities(viewing.title)}</h2>
               <CaptureMetadataHeader capture={viewing} />
-              <div className="text-sm leading-relaxed" style={{ color: 'var(--text-secondary)' }}>
-                {renderMarkdownBody(viewing.body)}
-              </div>
+              <CaptureBody capture={viewing} />
 
               {/* Additional images */}
               {viewing.images && viewing.images.length > 1 && (

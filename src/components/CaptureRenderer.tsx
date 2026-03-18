@@ -372,6 +372,253 @@ function GenericMetadataHeader({ capture }: { capture: Capture }) {
   );
 }
 
+// ── Shared Inline Markdown Renderer ──
+
+function renderInline(text: string): React.ReactNode[] {
+  const parts: React.ReactNode[] = [];
+  const regex = /(\*\*(.+?)\*\*)|(`([^`]+)`)|(\[([^\]]+)\]\(([^)]+)\))/g;
+  let lastIndex = 0;
+  let match;
+  let partKey = 0;
+  while ((match = regex.exec(text)) !== null) {
+    if (match.index > lastIndex) parts.push(text.slice(lastIndex, match.index));
+    if (match[1]) parts.push(<strong key={partKey++} style={{ color: 'var(--text-primary)', fontWeight: 600 }}>{match[2]}</strong>);
+    else if (match[3]) parts.push(<code key={partKey++} className="font-mono text-[0.9em] px-1.5 py-0.5 rounded" style={{ background: 'var(--bg)', color: 'var(--accent)' }}>{match[4]}</code>);
+    else if (match[5]) parts.push(<a key={partKey++} href={match[7]} target="_blank" rel="noopener noreferrer" style={{ color: 'var(--accent)', textDecoration: 'underline', textUnderlineOffset: '2px' }}>{match[6]}</a>);
+    lastIndex = match.index + match[0].length;
+  }
+  if (lastIndex < text.length) parts.push(text.slice(lastIndex));
+  return parts;
+}
+
+function renderMarkdownLine(line: string, key: string): React.ReactNode {
+  const h1Match = line.match(/^# (.+)$/);
+  if (h1Match) return <h2 key={key} className="font-bold mt-8 mb-3" style={{ fontSize: '22px', color: 'var(--text-primary)', lineHeight: 1.3 }}>{renderInline(h1Match[1])}</h2>;
+  const h2Match = line.match(/^## (.+)$/);
+  if (h2Match) return <h3 key={key} className="font-bold mt-7 mb-2" style={{ fontSize: '19px', color: 'var(--text-primary)', lineHeight: 1.3 }}>{renderInline(h2Match[1])}</h3>;
+  const h3Match = line.match(/^### (.+)$/);
+  if (h3Match) return <h4 key={key} className="font-semibold mt-5 mb-2" style={{ fontSize: '17px', color: 'var(--text-primary)', lineHeight: 1.4 }}>{renderInline(h3Match[1])}</h4>;
+  const h4Match = line.match(/^#### (.+)$/);
+  if (h4Match) return <h5 key={key} className="font-semibold mt-4 mb-1" style={{ fontSize: '15px', color: 'var(--text-primary)', lineHeight: 1.4 }}>{renderInline(h4Match[1])}</h5>;
+
+  if (/^---+$/.test(line.trim())) return <hr key={key} className="my-6" style={{ border: 'none', borderTop: '1px solid var(--border-subtle)' }} />;
+
+  const ulMatch = line.match(/^[-*] (.+)$/);
+  if (ulMatch) return <div key={key} className="flex gap-2 ml-1 mb-1"><span style={{ color: 'var(--text-tertiary)' }}>•</span><span>{renderInline(ulMatch[1])}</span></div>;
+
+  if (line.startsWith('> ')) return <blockquote key={key} className="pl-4 my-2" style={{ borderLeft: '2px solid var(--border)', color: 'var(--text-tertiary)', fontStyle: 'italic' }}>{renderInline(line.slice(2))}</blockquote>;
+
+  if (line.trim() === '') return <div key={key} className="h-3" />;
+
+  return <p key={key} className="mb-1">{renderInline(line)}</p>;
+}
+
+function renderMarkdownBody(body: string): React.ReactNode[] {
+  const lines = body.split('\n');
+  const elements: React.ReactNode[] = [];
+  let i = 0;
+  while (i < lines.length) {
+    if (lines[i].startsWith('```')) {
+      const lang = lines[i].slice(3).trim();
+      const codeLines: string[] = [];
+      i++;
+      while (i < lines.length && !lines[i].startsWith('```')) {
+        codeLines.push(lines[i]);
+        i++;
+      }
+      i++;
+      elements.push(
+        <pre key={`code-${i}`} className="rounded-lg px-4 py-3 my-4 overflow-x-auto text-[13px]" style={{ background: 'var(--bg)', border: '1px solid var(--border-subtle)', color: 'var(--text-secondary)', lineHeight: 1.5, fontFamily: "'JetBrains Mono', 'Fira Code', 'SF Mono', Menlo, monospace" }}>
+          {lang && <div className="text-[10px] uppercase tracking-wider mb-2" style={{ color: 'var(--text-tertiary)' }}>{lang}</div>}
+          <code>{codeLines.join('\n')}</code>
+        </pre>
+      );
+      continue;
+    }
+    elements.push(renderMarkdownLine(lines[i], `line-${i}`));
+    i++;
+  }
+  return elements;
+}
+
+// ── TweetBody ──
+
+function TweetBody({ capture }: { capture: Capture }) {
+  const body = capture.body || '';
+  const m = capture.metadata;
+  const isThread = body.includes('\n---\n') && (Number(m?.threadLength) > 1 || (body.match(/\n---\n/g) || []).length >= 1);
+
+  // Thread rendering: split on --- and render as numbered blocks
+  if (isThread) {
+    const segments = body.split(/\n---\n/).filter(s => s.trim());
+    const total = segments.length;
+
+    return (
+      <div className="space-y-0">
+        {segments.map((segment, idx) => {
+          const trimmed = segment.trim();
+          // Check for inline images in this segment
+          const parts = trimmed.split(/(\[image:[^\]]+\])/);
+          const hasInlineImages = parts.length > 1;
+
+          return (
+            <div key={idx} className="relative pl-5 py-4" style={{ borderLeft: `2px solid ${PLATFORM_COLORS.twitter}33` }}>
+              {/* Tweet counter */}
+              <span className="absolute left-[-1px] top-4 text-[10px] font-mono px-1 rounded" style={{ color: 'var(--text-tertiary)', background: 'var(--bg-elevated)', transform: 'translateX(-50%)' }}>
+                {idx + 1}/{total}
+              </span>
+
+              {hasInlineImages ? (
+                <div style={{ fontSize: '16px', lineHeight: 1.65, color: 'var(--text-secondary)' }}>
+                  {parts.map((part, pi) => {
+                    const imgMatch = part.match(/^\[image:(.+)\]$/);
+                    if (imgMatch) {
+                      return (
+                        <div key={pi} className="my-4">
+                          <img src={imgMatch[1]} alt="" className="w-full rounded-lg" style={{ border: '1px solid var(--border-subtle)' }} loading="lazy" referrerPolicy="no-referrer" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
+                        </div>
+                      );
+                    }
+                    return part.trim() ? <div key={pi}>{renderMarkdownBody(part.trim())}</div> : null;
+                  })}
+                </div>
+              ) : (
+                <div style={{ fontSize: '16px', lineHeight: 1.65, color: 'var(--text-secondary)' }}>
+                  {renderMarkdownBody(trimmed)}
+                </div>
+              )}
+
+              {/* Separator between tweets (not after last) */}
+              {idx < total - 1 && (
+                <hr className="mt-4" style={{ border: 'none', borderTop: '1px solid var(--border-subtle)' }} />
+              )}
+            </div>
+          );
+        })}
+      </div>
+    );
+  }
+
+  // Single tweet: size based on length
+  const len = body.length;
+
+  // Check for inline images
+  const hasInlineImages = body.includes('[image:');
+  if (hasInlineImages) {
+    const parts = body.split(/(\[image:[^\]]+\])/);
+    return (
+      <div style={{ fontSize: len < 200 ? '22px' : len < 500 ? '18px' : '16px', lineHeight: len < 200 ? 1.4 : len < 500 ? 1.5 : 1.65, color: len > 500 ? 'var(--text-secondary)' : 'var(--text-primary)' }}>
+        {parts.map((part, i) => {
+          const imgMatch = part.match(/^\[image:(.+)\]$/);
+          if (imgMatch) {
+            return (
+              <div key={i} className="my-6">
+                <img src={imgMatch[1]} alt="" className="w-full rounded-lg" style={{ border: '1px solid var(--border-subtle)' }} loading="lazy" referrerPolicy="no-referrer" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
+              </div>
+            );
+          }
+          return part.trim() ? <div key={i}>{renderMarkdownBody(part.trim())}</div> : null;
+        })}
+      </div>
+    );
+  }
+
+  // Short tweet: large pull-quote style
+  if (len < 200) {
+    return (
+      <div style={{ fontSize: '22px', lineHeight: 1.4, color: 'var(--text-primary)', fontWeight: 400 }}>
+        {renderMarkdownBody(body)}
+      </div>
+    );
+  }
+
+  // Medium tweet
+  if (len < 500) {
+    return (
+      <div style={{ fontSize: '18px', lineHeight: 1.5, color: 'var(--text-primary)', fontWeight: 400 }}>
+        {renderMarkdownBody(body)}
+      </div>
+    );
+  }
+
+  // Long tweet / note tweet
+  return (
+    <div style={{ fontSize: '16px', lineHeight: 1.65, color: 'var(--text-secondary)', fontWeight: 400 }}>
+      {renderMarkdownBody(body)}
+    </div>
+  );
+}
+
+// ── ArticleBody (also used for X Articles) ──
+
+function ArticleBody({ capture }: { capture: Capture }) {
+  const body = capture.body || '';
+
+  // Handle inline images ([image:URL] markers)
+  if (body.includes('[image:')) {
+    const parts = body.split(/(\[image:[^\]]+\])/);
+    return (
+      <div style={{ fontSize: '17px', lineHeight: 1.75, color: 'var(--text-secondary)' }}>
+        {parts.map((part, i) => {
+          const imgMatch = part.match(/^\[image:(.+)\]$/);
+          if (imgMatch) {
+            return (
+              <div key={i} className="my-6">
+                <img src={imgMatch[1]} alt="" className="w-full rounded-lg" style={{ border: '1px solid var(--border-subtle)', maxWidth: '100%', objectFit: 'contain' }} loading="lazy" referrerPolicy="no-referrer" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
+              </div>
+            );
+          }
+          return part.trim() ? <div key={i}>{renderMarkdownBody(part.trim())}</div> : null;
+        })}
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ fontSize: '17px', lineHeight: 1.75, color: 'var(--text-secondary)' }}>
+      {renderMarkdownBody(body)}
+    </div>
+  );
+}
+
+// ── CaptureBody: platform-aware body dispatcher ──
+
+export function CaptureBody({ capture }: { capture: Capture }) {
+  const isXArticle = capture.platform === 'twitter' && Boolean(capture.metadata?.isArticle);
+
+  // X Articles delegate to ArticleBody
+  if (isXArticle) {
+    return <ArticleBody capture={capture} />;
+  }
+
+  switch (capture.platform) {
+    case 'twitter':
+      return <TweetBody capture={capture} />;
+    case 'article':
+      return <ArticleBody capture={capture} />;
+    // GitHub, Reddit, and generic bodies will be added in Sessions 3 & 4
+    // For now they use the default markdown rendering at platform-appropriate sizes
+    case 'github':
+      return (
+        <div style={{ fontSize: '15px', lineHeight: 1.65, color: 'var(--text-secondary)' }}>
+          {renderMarkdownBody(capture.body)}
+        </div>
+      );
+    case 'reddit':
+      return (
+        <div style={{ fontSize: '16px', lineHeight: 1.7, color: 'var(--text-secondary)' }}>
+          {renderMarkdownBody(capture.body)}
+        </div>
+      );
+    default:
+      return (
+        <div style={{ fontSize: '16px', lineHeight: 1.7, color: 'var(--text-secondary)' }}>
+          {renderMarkdownBody(capture.body)}
+        </div>
+      );
+  }
+}
+
 // ── Main Export ──
 
 export function CaptureMetadataHeader({ capture }: { capture: Capture }) {
@@ -390,4 +637,4 @@ export function CaptureMetadataHeader({ capture }: { capture: Capture }) {
 }
 
 // Re-export helpers that pages may need
-export { formatCompact, formatDate, formatFullDate, PLATFORM_COLORS, GITHUB_LANG_COLORS };
+export { formatCompact, formatDate, formatFullDate, PLATFORM_COLORS, GITHUB_LANG_COLORS, renderMarkdownBody };
