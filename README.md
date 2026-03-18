@@ -1,36 +1,72 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Sift
 
-## Getting Started
+Capture the internet for your AI. Sift extracts content from URLs across Reddit, X (Twitter), GitHub, and articles — structures it with platform-aware metadata — and exports it as context packages for Claude and other AI agents.
 
-First, run the development server:
+**Live at** [bild-curation-app.vercel.app](https://bild-curation-app.vercel.app)
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+## What it does
+
+Paste a URL. Sift extracts the content, detects the platform, pulls metadata (engagement stats, author, subreddit, repo stars, publish date), and organizes it into projects. When you're ready, export a structured markdown package — one capture or an entire project — optimized for AI consumption.
+
+### Supported platforms
+
+- **X (Twitter)** — tweets, threads, and X Articles. Extracts engagement stats (likes, retweets, views), detects article vs. thread vs. single tweet.
+- **Reddit** — posts and comments. Handles `/s/` share links, extracts subreddit, author, score, flair. Cloudflare Worker proxy for reliable extraction.
+- **GitHub** — repositories and files. Extracts stars, forks, issues, language breakdown, topics, project structure, and README content.
+- **Articles** — any URL. Extracts title, author, site name, publish date, and full article text via Open Graph + readability parsing.
+
+### Key features
+
+- **Platform-aware rendering** — each capture type gets its own metadata header and body renderer. GitHub repos show language color bars and topic pills. X Articles show engagement stats. Reddit posts show subreddit and flair badges. Tweets scale typography based on content length.
+- **Duplicate detection** — instant inline feedback when you paste a URL that's already in a project. Same-project duplicates are blocked. Cross-project duplicates give you the choice.
+- **Structured export** — "Package for Claude" generates clean markdown with platform metadata, context notes, and body content. Works for single captures or full projects. Built on a typed data layer (`ExportProject` / `ExportCapture`) ready for API consumption.
+- **Context notes** — add your thinking to any capture. Why you saved it, what Claude should focus on. Exported as part of the package.
+- **Shareable project links** — public URLs for any project or individual capture.
+- **Chrome extension** — capture URLs from any tab without leaving the page.
+- **PWA** — installable on iOS and Android.
+
+## Stack
+
+- **Frontend:** Next.js 16 + Tailwind CSS
+- **Backend:** Supabase (Postgres + Auth + RLS)
+- **Hosting:** Vercel
+- **Extraction:** Server-side with Cloudflare Worker proxy for Reddit
+- **Auth:** Google OAuth via Supabase
+
+## Architecture
+
+```
+Chrome Extension / PWA / Web
+        ↓
+    /api/fetch-url (extraction + platform detection)
+        ↓
+    Supabase (captures + projects + RLS)
+        ↓
+    Platform-aware rendering (CaptureRenderer.tsx)
+        ↓
+    Structured export (buildExportData → renderExportAsMarkdown)
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+The codebase is organized around a few key patterns:
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+- **Platform switch** — `CaptureRenderer` uses `switch (capture.platform)` to route to platform-specific metadata headers and body renderers.
+- **Accumulator-based extraction** — each extraction strategy enriches a shared `CaptureResult` rather than replacing prior output.
+- **Skill files** — `.claude/skills/` contains specs that Claude Code reads before implementing. Design system, rendering system, extraction patterns, Supabase patterns.
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+## Development
 
-## Learn More
+```bash
+git clone https://github.com/bildkeepsbilding/bild-curation-app.git
+cd bild-curation-app
+npm install
+cp .env.example .env.local  # add your Supabase keys
+npm run dev
+```
 
-To learn more about Next.js, take a look at the following resources:
+## Built by
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+[Bild Brand Labs](https://bildbrandlab.com) — a builder-operator venture platform. Sift is one of several products built by Bild to solve real bottlenecks across its portfolio companies.
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+## License
 
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+MIT
