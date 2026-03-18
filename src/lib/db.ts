@@ -443,32 +443,78 @@ export function formatEngagement(c: Capture): string {
 
   if (c.platform === 'twitter') {
     const parts = [
-      m.likes != null ? `likes: ${m.likes}` : null,
-      m.retweets != null ? `retweets: ${m.retweets}` : null,
-      m.views != null ? `views: ${m.views}` : null,
+      m.likes != null && Number(m.likes) > 0 ? `${m.likes} likes` : null,
+      m.retweets != null && Number(m.retweets) > 0 ? `${m.retweets} retweets` : null,
+      m.views != null && Number(m.views) > 0 ? `${m.views} views` : null,
     ].filter(Boolean);
-    return parts.join(', ');
+    return parts.join(' · ');
   }
 
   if (c.platform === 'reddit') {
     const parts = [
-      m.score != null ? `upvotes: ${m.score}` : null,
-      m.numComments != null ? `comments: ${m.numComments}` : null,
-      m.subreddit ? `subreddit: r/${m.subreddit}` : null,
+      m.score != null && Number(m.score) > 0 ? `${m.score} points` : null,
+      m.numComments != null && Number(m.numComments) > 0 ? `${m.numComments} comments` : null,
     ].filter(Boolean);
-    return parts.join(', ');
+    return parts.join(' · ');
   }
 
   if (c.platform === 'github') {
     const parts = [
-      m.stars != null ? `stars: ${m.stars}` : null,
-      m.forks != null ? `forks: ${m.forks}` : null,
-      m.language ? `language: ${m.language}` : null,
+      m.stars != null && Number(m.stars) > 0 ? `${m.stars} stars` : null,
+      m.forks != null && Number(m.forks) > 0 ? `${m.forks} forks` : null,
     ].filter(Boolean);
-    return parts.join(', ');
+    return parts.join(' · ');
   }
 
   return '';
+}
+
+// Build a platform-specific metadata line for markdown export
+function formatCaptureMetaLine(c: Capture): string {
+  const m = c.metadata;
+  const parts: string[] = [];
+
+  switch (c.platform) {
+    case 'twitter': {
+      // @handle · Article/Thread badge · date
+      const handle = c.author.startsWith('@') ? c.author
+        : c.author.includes('(@') ? `@${c.author.match(/\(@([^)]+)\)/)?.[1] || c.author}` : c.author;
+      parts.push(handle);
+      if (m?.isArticle) parts.push('Article');
+      if (m?.isThreadRoot || (Number(m?.threadLength) > 1)) parts.push(`Thread (${m?.threadLength} tweets)`);
+      break;
+    }
+    case 'reddit': {
+      // r/subreddit · u/author · flair
+      if (m?.subreddit) parts.push(`r/${m.subreddit}`);
+      parts.push(`u/${c.author.replace(/^u\//, '')}`);
+      if (m?.flair) parts.push(String(m.flair));
+      break;
+    }
+    case 'github': {
+      // owner/repo · language · topics
+      const urlParts = c.url.replace(/^https?:\/\/(www\.)?github\.com\//, '').split('/');
+      parts.push(urlParts.slice(0, 2).join('/'));
+      if (m?.language) parts.push(String(m.language));
+      if (Array.isArray(m?.topics) && (m.topics as string[]).length > 0) {
+        parts.push((m.topics as string[]).join(', '));
+      }
+      break;
+    }
+    case 'article': {
+      // site · author · read time
+      if (m?.siteName) parts.push(String(m.siteName));
+      parts.push(c.author);
+      const wordCount = c.body.split(/\s+/).length;
+      const readTime = Math.ceil(wordCount / 238);
+      if (readTime > 0) parts.push(`~${readTime} min read`);
+      break;
+    }
+    default:
+      parts.push(c.author);
+  }
+
+  return parts.join(' · ');
 }
 
 export function detectContentType(c: Capture): string {
@@ -558,68 +604,115 @@ export const PLATFORM_DISPLAY: Record<string, string> = {
   other: 'Other',
 };
 
-export async function exportProjectAsMarkdown(projectId: string, filterPlatform?: Platform | 'all'): Promise<string> {
-  const project = await getProject(projectId);
-  let captures = await getCaptures(projectId);
-  if (!project) return '';
+// --- Structured export data (for future API endpoint) ---
 
-  if (filterPlatform && filterPlatform !== 'all') {
-    captures = captures.filter(c => c.platform === filterPlatform);
-  }
+export interface ExportCapture {
+  title: string;
+  url: string;
+  platform: Platform;
+  author: string;
+  metadata_line: string;    // platform-specific: handle · badge · stats
+  engagement: string;       // stats only, empty if zero
+  date: string;             // ISO date
+  context_note: string;     // user's annotation, empty if none
+  body: string;             // cleaned body text
+}
 
-  const filterLabel = filterPlatform && filterPlatform !== 'all' ? ` [filtered: ${PLATFORM_DISPLAY[filterPlatform] || filterPlatform}]` : '';
-  let md = `# ${project.name}${filterLabel}\n\n`;
+export interface ExportProject {
+  name: string;
+  brief: string;
+  captures: ExportCapture[];
+  summary: {
+    total: number;
+    platforms: string[];
+    date_range: string;
+    captures_with_context: number;
+    exported_at: string;
+  };
+}
 
-  if (project.brief) {
-    md += `## Project Brief\n\n${project.brief}\n\n`;
+export function buildExportData(project: Project, captures: Capture[], filterPlatform?: Platform | 'all'): ExportProject {
+  let filtered = filterPlatform && filterPlatform !== 'all'
+    ? captures.filter(c => c.platform === filterPlatform)
+    : captures;
+
+  const exportCaptures: ExportCapture[] = filtered.map(c => ({
+    title: c.title,
+    url: c.url,
+    platform: c.platform,
+    author: c.author,
+    metadata_line: formatCaptureMetaLine(c),
+    engagement: formatEngagement(c),
+    date: new Date(c.createdAt).toISOString().split('T')[0],
+    context_note: c.note || '',
+    body: c.body.replace(/\[image:[^\]]+\]\n?\n?/g, '').trim(),
+  }));
+
+  const platforms = [...new Set(filtered.map(c => PLATFORM_DISPLAY[c.platform] || c.platform))];
+  const dates = filtered.map(c => c.createdAt).sort();
+  const dateRange = dates.length > 0
+    ? (() => {
+        const oldest = new Date(dates[0]).toISOString().split('T')[0];
+        const newest = new Date(dates[dates.length - 1]).toISOString().split('T')[0];
+        return oldest === newest ? oldest : `${oldest} to ${newest}`;
+      })()
+    : '';
+
+  return {
+    name: project.name,
+    brief: project.brief || '',
+    captures: exportCaptures,
+    summary: {
+      total: filtered.length,
+      platforms,
+      date_range: dateRange,
+      captures_with_context: filtered.filter(c => c.note).length,
+      exported_at: new Date().toISOString().split('T')[0],
+    },
+  };
+}
+
+// --- Markdown export (renders structured data to markdown) ---
+
+export function renderExportAsMarkdown(data: ExportProject): string {
+  const filterLabel = data.summary.platforms.length === 1 && data.summary.total > 0
+    ? '' : '';
+  let md = `# ${data.name}${filterLabel}\n\n`;
+
+  if (data.brief) {
+    md += `> **Project brief:** ${data.brief}\n\n`;
   }
 
   md += `---\n\n`;
 
-  for (const c of captures) {
-    md += `---\n`;
-    md += `source: ${PLATFORM_DISPLAY[c.platform] || c.platform}\n`;
-    md += `author: ${c.author}\n`;
-    md += `date: ${new Date(c.createdAt).toISOString().split('T')[0]}\n`;
-    const engagement = formatEngagement(c);
-    if (engagement) md += `engagement: ${engagement}\n`;
-    md += `content_type: ${c.contentTag || detectContentTag(c)}\n`;
-    md += `url: ${c.url}\n`;
-    if (c.note) md += `context_for_claude: ${c.note}\n`;
-    md += `---\n\n`;
-
+  for (const c of data.captures) {
     md += `## ${c.title}\n\n`;
+    md += `${c.url}\n\n`;
+    // Metadata line: platform · handle/repo · stats · date
+    const metaParts = [PLATFORM_DISPLAY[c.platform] || c.platform, c.metadata_line, c.engagement, c.date].filter(Boolean);
+    md += `${metaParts.join(' · ')}\n\n`;
 
-    const cleanBody = c.body.replace(/\[image:[^\]]+\]\n?\n?/g, '');
-    md += `${cleanBody}\n\n`;
-
-    if (c.images && c.images.length > 0) {
-      md += `Images:\n`;
-      for (const img of c.images) {
-        md += `- ${img}\n`;
-      }
-      md += `\n`;
+    if (c.context_note) {
+      md += `> **Context:** ${c.context_note}\n\n`;
     }
+
+    md += `${c.body}\n\n`;
+    md += `---\n\n`;
   }
 
-  if (captures.length > 0) {
-    const platforms = [...new Set(captures.map(c => PLATFORM_DISPLAY[c.platform] || c.platform))];
-    const dates = captures.map(c => c.createdAt).sort();
-    const oldest = new Date(dates[0]).toISOString().split('T')[0];
-    const newest = new Date(dates[dates.length - 1]).toISOString().split('T')[0];
-    const dateRange = oldest === newest ? oldest : `${oldest} to ${newest}`;
-    const withContext = captures.filter(c => c.note).length;
-
-    md += `---\n\n`;
-    md += `## Collection Summary\n\n`;
-    md += `- Total captures: ${captures.length}\n`;
-    md += `- Platforms: ${platforms.join(', ')}\n`;
-    md += `- Date range: ${dateRange}\n`;
-    md += `- Captures with context: ${withContext}/${captures.length}\n`;
-    md += `- Exported: ${new Date().toISOString().split('T')[0]}\n`;
+  if (data.summary.total > 0) {
+    md += `*${data.summary.total} captures · ${data.summary.platforms.join(', ')} · ${data.summary.date_range} · ${data.summary.captures_with_context} with context*\n`;
   }
 
   return md;
+}
+
+export async function exportProjectAsMarkdown(projectId: string, filterPlatform?: Platform | 'all'): Promise<string> {
+  const project = await getProject(projectId);
+  const captures = await getCaptures(projectId);
+  if (!project) return '';
+  const data = buildExportData(project, captures, filterPlatform);
+  return renderExportAsMarkdown(data);
 }
 
 // --- Public (no-auth) data fetching for shared projects ---
