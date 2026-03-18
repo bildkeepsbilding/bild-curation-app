@@ -707,6 +707,22 @@ export function renderExportAsMarkdown(data: ExportProject): string {
   return md;
 }
 
+export function exportCaptureAsMarkdown(projectName: string, capture: Capture): string {
+  const data = buildExportData(
+    { id: '', name: projectName, brief: '', is_inbox: false, share: false, captureCount: 1, createdAt: 0, updatedAt: 0 } as Project,
+    [capture],
+  );
+  return renderExportAsMarkdown(data);
+}
+
+export function slugify(text: string): string {
+  return text
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 60);
+}
+
 export async function exportProjectAsMarkdown(projectId: string, filterPlatform?: Platform | 'all'): Promise<string> {
   const project = await getProject(projectId);
   const captures = await getCaptures(projectId);

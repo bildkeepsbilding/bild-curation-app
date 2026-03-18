@@ -16,6 +16,8 @@ import {
   reorderCapture,
   findCaptureByUrl,
   normalizeUrl,
+  exportCaptureAsMarkdown,
+  slugify,
   getUniqueContentTag,
   decodeEntities,
   type Project,
@@ -675,11 +677,30 @@ export default function ProjectPage() {
                 </>
               )}
 
-              {/* View original link */}
-              <a href={viewing.url} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1.5 mt-6 mb-2 text-xs font-mono" style={{ color: 'var(--accent)' }}>
-                View original
-                <svg width="12" height="12" viewBox="0 0 16 16" fill="none"><path d="M6 4h6v6M12 4L4 12" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" /></svg>
-              </a>
+              {/* Actions: View original + Package for Claude */}
+              <div className="flex items-center gap-4 mt-6 mb-2">
+                <a href={viewing.url} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1.5 text-xs font-mono" style={{ color: 'var(--accent)' }}>
+                  View original
+                  <svg width="12" height="12" viewBox="0 0 16 16" fill="none"><path d="M6 4h6v6M12 4L4 12" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" /></svg>
+                </a>
+                <button
+                  onClick={() => {
+                    const md = exportCaptureAsMarkdown(project?.name || 'Untitled', viewing);
+                    const blob = new Blob([md], { type: 'text/markdown' });
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = `${slugify(viewing.title)}.md`;
+                    a.click();
+                    URL.revokeObjectURL(url);
+                  }}
+                  className="inline-flex items-center gap-1.5 text-xs font-mono"
+                  style={{ color: 'var(--text-tertiary)' }}
+                >
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none"><path d="M12 4v12m0 0l-4-4m4 4l4-4M4 18h16" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" /></svg>
+                  Package for Claude
+                </button>
+              </div>
 
               {/* Context for Claude — prominent briefing section */}
               <div className="mt-8 mb-4 rounded-2xl overflow-hidden" style={{ border: '1px solid var(--accent)40', background: 'var(--accent-dim)' }}>

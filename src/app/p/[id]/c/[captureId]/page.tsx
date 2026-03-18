@@ -6,6 +6,8 @@ import {
   getSharedCapture,
   getSharedProject,
   getSharedProjectCaptures,
+  exportCaptureAsMarkdown,
+  slugify,
   decodeEntities,
   type Project,
   type Capture,
@@ -223,11 +225,30 @@ export default function SharedCapturePage() {
           </>
         )}
 
-        {/* View original */}
-        <a href={capture.url} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1.5 mt-6 mb-2 text-sm font-mono" style={{ color: 'var(--accent)' }}>
-          View original
-          <svg width="12" height="12" viewBox="0 0 16 16" fill="none"><path d="M6 4h6v6M12 4L4 12" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" /></svg>
-        </a>
+        {/* Actions: View original + Package for Claude */}
+        <div className="flex items-center gap-4 mt-6 mb-2">
+          <a href={capture.url} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1.5 text-sm font-mono" style={{ color: 'var(--accent)' }}>
+            View original
+            <svg width="12" height="12" viewBox="0 0 16 16" fill="none"><path d="M6 4h6v6M12 4L4 12" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" /></svg>
+          </a>
+          <button
+            onClick={() => {
+              const md = exportCaptureAsMarkdown(project.name, capture);
+              const blob = new Blob([md], { type: 'text/markdown' });
+              const url = URL.createObjectURL(blob);
+              const a = document.createElement('a');
+              a.href = url;
+              a.download = `${slugify(capture.title)}.md`;
+              a.click();
+              URL.revokeObjectURL(url);
+            }}
+            className="inline-flex items-center gap-1.5 text-sm font-mono"
+            style={{ color: 'var(--text-tertiary)' }}
+          >
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none"><path d="M12 4v12m0 0l-4-4m4 4l4-4M4 18h16" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" /></svg>
+            Package for Claude
+          </button>
+        </div>
 
         {/* Curator's annotation */}
         {capture.note && (
