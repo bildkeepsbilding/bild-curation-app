@@ -15,6 +15,7 @@ import {
   copyCapture,
   reorderCapture,
   findCaptureByUrl,
+  normalizeUrl,
   getUniqueContentTag,
   decodeEntities,
   type Project,
@@ -180,6 +181,16 @@ export default function ProjectPage() {
     const url = urlInput.trim();
     if (!url) return;
     setDuplicateInfo(null);
+
+    // Fast local check: is this URL already in the current project?
+    const normalized = normalizeUrl(url);
+    const localDup = captures.find(c => normalizeUrl(c.url) === normalized);
+    if (localDup && project) {
+      setDuplicateInfo({ capture: localDup, project });
+      return;
+    }
+
+    // Cross-project check
     try {
       const dup = await findCaptureByUrl(url);
       if (dup) {
@@ -884,7 +895,18 @@ export default function ProjectPage() {
           </button>
         </div>
         {fetchError && <p className="text-xs mt-2 px-1" style={{ color: fetching ? 'var(--text-tertiary)' : 'var(--danger)' }}>{fetchError}</p>}
-        {duplicateInfo && (
+        {duplicateInfo && duplicateInfo.project.id === projectId ? (
+          /* Same-project duplicate — block it, offer to view */
+          <div className="mt-2 px-3 py-2.5 rounded-xl text-xs flex items-center justify-between gap-3" style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border)' }}>
+            <span style={{ color: 'var(--text-secondary)' }}>
+              This URL is already in this project
+            </span>
+            <button onClick={() => { setViewing(duplicateInfo.capture); setDuplicateInfo(null); setUrlInput(''); }} className="px-2.5 py-1 rounded-lg font-semibold flex-shrink-0" style={{ background: 'var(--bg-hover)', color: 'var(--text-primary)', border: '1px solid var(--border)' }}>
+              View capture
+            </button>
+          </div>
+        ) : duplicateInfo ? (
+          /* Cross-project duplicate — warn, allow capture anyway */
           <div className="mt-2 px-3 py-2.5 rounded-xl text-xs flex items-center justify-between gap-3" style={{ background: 'var(--accent-dim)', border: '1px solid var(--accent)40' }}>
             <span style={{ color: 'var(--accent)' }}>
               Already captured in <strong>{duplicateInfo.project.name}</strong>
@@ -894,7 +916,7 @@ export default function ProjectPage() {
               <button onClick={handleCaptureAnyway} className="px-2.5 py-1 rounded-lg font-semibold" style={{ background: 'var(--accent)', color: 'var(--bg)' }}>Capture anyway</button>
             </div>
           </div>
-        )}
+        ) : null}
       </div>
 
       {/* ── Platform Filter Tabs ── */}
