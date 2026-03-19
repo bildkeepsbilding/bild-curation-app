@@ -1,5 +1,6 @@
 'use client';
 
+import React from 'react';
 import { type Capture, type Platform } from '@/lib/db';
 
 // ── Platform colors ──
@@ -549,6 +550,123 @@ function TweetBody({ capture }: { capture: Capture }) {
   );
 }
 
+// ── FileTreeCollapsible ──
+
+function FileTreeCollapsible({ content }: { content: string }) {
+  const lines = content.split('\n').filter(l => l.trim());
+  const lineCount = lines.length;
+  const [open, setOpen] = React.useState(lineCount <= 20);
+
+  return (
+    <div className="my-4 rounded-lg overflow-hidden" style={{ border: '1px solid var(--border-subtle)', background: 'var(--bg)' }}>
+      <button
+        onClick={() => setOpen(!open)}
+        className="w-full flex items-center justify-between px-4 py-2 text-left"
+        style={{ color: 'var(--text-tertiary)', background: 'transparent', border: 'none', cursor: 'pointer' }}
+      >
+        <span className="text-xs font-semibold uppercase tracking-wider">Project Structure</span>
+        <span className="text-xs">{open ? '▾' : '▸'} {lineCount} items</span>
+      </button>
+      {open && (
+        <pre className="px-4 pb-3 overflow-x-auto" style={{ fontSize: '13px', lineHeight: 1.4, color: 'var(--text-secondary)', fontFamily: "'JetBrains Mono', 'Fira Code', 'SF Mono', Menlo, monospace" }}>
+          <code>{content}</code>
+        </pre>
+      )}
+    </div>
+  );
+}
+
+// ── GitHubBody ──
+
+function GitHubBody({ capture }: { capture: Capture }) {
+  const body = capture.body || '';
+
+  // Extract owner/repo from URL for resolving relative image paths
+  const urlParts = capture.url.replace(/^https?:\/\/(www\.)?github\.com\//, '').split('/');
+  const owner = urlParts[0] || '';
+  const repo = urlParts[1] || '';
+
+  // Split body into sections by --- separators
+  // Structure: metadata lines, ---, Project Structure: ..., ---, README: ...
+  const sections = body.split(/\n---\n/);
+
+  let fileTree = '';
+  let readmeContent = '';
+
+  for (const section of sections) {
+    const trimmed = section.trim();
+    if (trimmed.startsWith('Project Structure:')) {
+      fileTree = trimmed.replace(/^Project Structure:\s*/, '').trim();
+    } else if (trimmed.startsWith('README:')) {
+      readmeContent = trimmed.replace(/^README:\s*/, '').trim();
+    }
+    // Skip the first section (description/stats/languages/topics) — already in metadata header
+  }
+
+  // If no structured sections found, fall back to stripping metadata and rendering as markdown
+  if (!fileTree && !readmeContent) {
+    const cleaned = stripGitHubMetadataLines(body, capture.metadata);
+    return (
+      <div style={{ fontSize: '15px', lineHeight: 1.65, color: 'var(--text-secondary)' }}>
+        {renderMarkdownBody(cleaned)}
+      </div>
+    );
+  }
+
+  // Process README: convert relative <img> tags to absolute GitHub raw URLs, or strip them
+  if (readmeContent && owner && repo) {
+    readmeContent = resolveGitHubImages(readmeContent, owner, repo);
+  }
+
+  return (
+    <div>
+      {fileTree && <FileTreeCollapsible content={fileTree} />}
+      {readmeContent && (
+        <div style={{ fontSize: '15px', lineHeight: 1.65, color: 'var(--text-secondary)' }}>
+          {renderMarkdownBody(readmeContent)}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** Strip metadata lines that are already shown in GitHubMetadataHeader */
+function stripGitHubMetadataLines(body: string, metadata: Record<string, unknown> | null): string {
+  const lines = body.split('\n');
+  const filtered = lines.filter(line => {
+    const trimmed = line.trim();
+    // Skip description line (first non-empty line that matches metadata description)
+    if (metadata?.description && trimmed === String(metadata.description)) return false;
+    // Skip stats line: "Stars: X · Forks: Y · Issues: Z" or "⭐ X 🍴 Y" patterns
+    if (/^(Stars?|⭐)\s*[:：]?\s*[\d,]+\s*[·•]\s*(Forks?|🍴)/i.test(trimmed)) return false;
+    if (/^\d[\d,]*\s*stars?\s*[·•]/i.test(trimmed)) return false;
+    // Skip language lines
+    if (/^Languages?[:：]\s/i.test(trimmed)) return false;
+    // Skip topics line
+    if (/^Topics?[:：]\s/i.test(trimmed)) return false;
+    return true;
+  });
+  return filtered.join('\n').replace(/^\n+/, '');
+}
+
+/** Convert relative <img> tags to absolute GitHub raw URLs, or strip if no owner/repo */
+function resolveGitHubImages(content: string, owner: string, repo: string): string {
+  // Match HTML img tags
+  return content.replace(/<img\s+[^>]*src=["']([^"']+)["'][^>]*\/?>/gi, (match, src: string) => {
+    // Already absolute URL — keep as markdown image
+    if (/^https?:\/\//.test(src)) {
+      return `![](${src})`;
+    }
+    // Relative path — resolve to raw.githubusercontent.com
+    if (owner && repo) {
+      const cleanPath = src.replace(/^\.?\//, '');
+      return `![](https://raw.githubusercontent.com/${owner}/${repo}/HEAD/${cleanPath})`;
+    }
+    // Can't resolve — strip
+    return '';
+  });
+}
+
 // ── ArticleBody (also used for X Articles) ──
 
 function ArticleBody({ capture }: { capture: Capture }) {
@@ -596,14 +714,8 @@ export function CaptureBody({ capture }: { capture: Capture }) {
       return <TweetBody capture={capture} />;
     case 'article':
       return <ArticleBody capture={capture} />;
-    // GitHub, Reddit, and generic bodies will be added in Sessions 3 & 4
-    // For now they use the default markdown rendering at platform-appropriate sizes
     case 'github':
-      return (
-        <div style={{ fontSize: '15px', lineHeight: 1.65, color: 'var(--text-secondary)' }}>
-          {renderMarkdownBody(capture.body)}
-        </div>
-      );
+      return <GitHubBody capture={capture} />;
     case 'reddit':
       return (
         <div style={{ fontSize: '16px', lineHeight: 1.7, color: 'var(--text-secondary)' }}>
