@@ -99,3 +99,4 @@ Read these for domain-specific patterns:
 - `.claude/skills/supabase-patterns.md` — Database layer, RLS, auth, migrations
 - `.claude/skills/extraction-patterns.md` — URL extraction pipeline, platform strategies
 - `.claude/skills/extension-patterns.md` — Chrome extension auth, capture flow, popup UI
+
