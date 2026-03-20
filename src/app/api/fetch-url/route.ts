@@ -1086,7 +1086,8 @@ async function fetchViaFxTwitter(username: string, statusId: string): Promise<{
     if (tweet.article?.content?.blocks) {
       const blocks = tweet.article.content.blocks as Array<{ text?: string; type?: string; entityRanges?: Array<{ key: number; length: number; offset: number }>; inlineStyleRanges?: Array<{ style: string; offset: number; length: number }> }>;
       const mediaEntities = (tweet.article.media_entities || []) as Array<{ media_id?: string; media_info?: { original_img_url?: string } }>;
-      const entityMap = tweet.article.content.entityMap as Array<{ key: string; value: { type: string; data: { url?: string; mediaItems?: Array<{ mediaId: string }> } } }> | undefined;
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const entityMap = tweet.article.content.entityMap as Record<string, { type: string; data: { url?: string; mediaItems?: Array<{ mediaId: string }> } }> | Array<{ key: string; value: { type: string; data: { url?: string; mediaItems?: Array<{ mediaId: string }> } } }> | undefined;
 
       // Build lookup: mediaId → image URL from media_entities
       const mediaIdToUrl: Record<string, string> = {};
@@ -1097,12 +1098,14 @@ async function fetchViaFxTwitter(username: string, statusId: string): Promise<{
       }
 
       // Build lookups from entityMap: media keys → image URLs, link keys → URLs
+      // Draft.js entityMap can be an object { "0": {type, data}, ... } or an array [{key, value}, ...]
       const entityKeyToUrl: Record<string, string> = {};
       const entityKeyToLink: Record<string, string> = {};
-      if (entityMap && Array.isArray(entityMap)) {
-        for (const entry of entityMap) {
-          const key = entry.key;
-          const val = entry.value;
+      if (entityMap && typeof entityMap === 'object') {
+        const entries: Array<[string, { type: string; data: { url?: string; mediaItems?: Array<{ mediaId: string }> } }]> = Array.isArray(entityMap)
+          ? entityMap.map(entry => [entry.key, entry.value])
+          : Object.entries(entityMap);
+        for (const [key, val] of entries) {
           if (val?.type === 'MEDIA' && val.data?.mediaItems) {
             for (const item of val.data.mediaItems) {
               if (item.mediaId && mediaIdToUrl[item.mediaId]) {

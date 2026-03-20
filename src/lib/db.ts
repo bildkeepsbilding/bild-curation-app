@@ -645,7 +645,7 @@ export function buildExportData(project: Project, captures: Capture[], filterPla
     engagement: formatEngagement(c),
     date: new Date(c.createdAt).toISOString().split('T')[0],
     context_note: c.note || '',
-    body: c.body.replace(/\[image:[^\]]+\]\n?\n?/g, '').trim(),
+    body: c.body.replace(/\[image:([^\]]+)\]/g, '![image]($1)').trim(),
   }));
 
   const platforms = [...new Set(filtered.map(c => PLATFORM_DISPLAY[c.platform] || c.platform))];
