@@ -637,7 +637,7 @@ export default function ProjectPage() {
               <div className="w-full" style={{ height: '6px', background: GITHUB_LANG_COLORS[(viewing.metadata as Record<string, string>)?.language] || PLATFORM_LABELS.github.color }} />
             ) : viewing.images && viewing.images.length > 0 && !viewing.body?.includes('[image:') ? (
               <div className="px-5 pt-5">
-                <img src={viewing.images[0]} alt="" className="w-full rounded-lg object-cover mx-auto" style={{ maxHeight: '300px' }} loading="lazy" referrerPolicy="no-referrer" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
+                <img src={viewing.images[0]} alt="" className={`w-full rounded-lg mx-auto ${viewing.platform === 'reddit' ? 'object-contain' : 'object-cover'}`} style={{ maxHeight: '320px' }} loading="lazy" referrerPolicy="no-referrer" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
               </div>
             ) : null}
 
@@ -651,8 +651,8 @@ export default function ProjectPage() {
               {/* Metadata bar */}
               <CaptureMetadataHeader capture={viewing} />
 
-              {/* Additional images (non-hero, non-inline) */}
-              {!viewing.body?.includes('[image:') && viewing.images && viewing.images.length > 1 && (
+              {/* Additional images (non-hero, non-inline) — Reddit handles its own gallery in RedditBody */}
+              {viewing.platform !== 'reddit' && !viewing.body?.includes('[image:') && viewing.images && viewing.images.length > 1 && (
                 <div className="mb-8 grid grid-cols-2 gap-2">
                   {viewing.images.slice(1).map((img, i) => (
                     <img key={i} src={img} alt={`Image ${i + 2}`} className="w-full h-auto rounded-lg object-cover" style={{ border: '1px solid var(--border-subtle)' }} loading="lazy" referrerPolicy="no-referrer" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />

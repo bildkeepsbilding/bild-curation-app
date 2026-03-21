@@ -108,7 +108,7 @@ export default function SharedCapturePage() {
         <div className="w-full" style={{ height: '6px', background: GITHUB_LANG_COLORS[(capture.metadata as Record<string, string>)?.language] || PLATFORM_LABELS.github.color }} />
       ) : hasImage ? (
         <div className="mx-auto px-5 pt-6" style={{ maxWidth: '720px' }}>
-          <img src={capture.images[0]} alt="" className="w-full rounded-lg object-cover mx-auto" style={{ maxHeight: '300px' }} loading="lazy" referrerPolicy="no-referrer" />
+          <img src={capture.images[0]} alt="" className={`w-full rounded-lg mx-auto ${capture.platform === 'reddit' ? 'object-contain' : 'object-cover'}`} style={{ maxHeight: '320px' }} loading="lazy" referrerPolicy="no-referrer" />
         </div>
       ) : null}
 
@@ -122,8 +122,8 @@ export default function SharedCapturePage() {
           {decodeEntities(capture.title)}
         </h1>
 
-        {/* Additional images (non-hero, non-inline) */}
-        {!capture.body?.includes('[image:') && capture.images && capture.images.length > 1 && (
+        {/* Additional images (non-hero, non-inline) — Reddit handles its own gallery in RedditBody */}
+        {capture.platform !== 'reddit' && !capture.body?.includes('[image:') && capture.images && capture.images.length > 1 && (
           <div className="mb-8 space-y-4">
             {capture.images.slice(1).map((img, i) => (
               <img key={i} src={img} alt={`Image ${i + 2}`} className="w-full rounded-xl" style={{ border: '1px solid var(--border-subtle)' }} loading="lazy" referrerPolicy="no-referrer" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />

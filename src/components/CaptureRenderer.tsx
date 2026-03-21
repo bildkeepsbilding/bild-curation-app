@@ -699,6 +699,186 @@ function ArticleBody({ capture }: { capture: Capture }) {
   );
 }
 
+// ── RedditBody ──
+
+interface RedditComment {
+  author: string;
+  text: string;
+  depth: number;
+}
+
+function parseRedditComments(raw: string): RedditComment[] {
+  const comments: RedditComment[] = [];
+  const lines = raw.split('\n');
+  let currentAuthor = '';
+  let currentLines: string[] = [];
+  let currentDepth = 0;
+
+  const flushComment = () => {
+    if (currentAuthor && currentLines.length > 0) {
+      comments.push({
+        author: currentAuthor,
+        text: currentLines.join('\n').trim(),
+        depth: currentDepth,
+      });
+    }
+    currentLines = [];
+  };
+
+  for (const line of lines) {
+    // Match comment author lines: "u/username:" or "> u/username:" (nested)
+    const authorMatch = line.match(/^(>*\s*)u\/([^:]+):\s*$/);
+    if (authorMatch) {
+      flushComment();
+      const prefix = authorMatch[1];
+      currentDepth = (prefix.match(/>/g) || []).length;
+      currentAuthor = authorMatch[2];
+      continue;
+    }
+
+    // Count > prefixes for depth on content lines
+    if (currentAuthor) {
+      // Strip leading > markers that match current depth
+      let stripped = line;
+      for (let d = 0; d < currentDepth; d++) {
+        stripped = stripped.replace(/^>\s?/, '');
+      }
+      currentLines.push(stripped);
+    }
+  }
+  flushComment();
+
+  return comments;
+}
+
+function RedditBody({ capture }: { capture: Capture }) {
+  const body = capture.body || '';
+  const images = capture.images || [];
+
+  // Split body into post selftext and comments section
+  // Comments start after "---" followed by "Top Comments:" or just after "---"
+  const commentSplitMatch = body.match(/\n---\n+(?:Top Comments:?\s*\n?)?/);
+  let postText = body;
+  let commentsRaw = '';
+
+  if (commentSplitMatch && commentSplitMatch.index != null) {
+    postText = body.slice(0, commentSplitMatch.index).trim();
+    commentsRaw = body.slice(commentSplitMatch.index + commentSplitMatch[0].length).trim();
+  }
+
+  // Parse structured comments
+  const comments = commentsRaw ? parseRedditComments(commentsRaw) : [];
+  const hasStructuredComments = comments.length > 0;
+
+  // Check if post is a link post
+  const isLinkPost = postText.trim() === '(Link post)';
+
+  // Image gallery: show all images below post body (hero is rendered separately by the page)
+  // Skip images[0] since it's the hero; show remaining in grid
+  const galleryImages = images.slice(1);
+
+  return (
+    <div>
+      {/* Post selftext */}
+      {isLinkPost ? (
+        <a
+          href={capture.url}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="inline-flex items-center gap-1.5 text-sm font-mono mb-4"
+          style={{ color: 'var(--accent)' }}
+        >
+          Link post →
+        </a>
+      ) : postText ? (
+        <div style={{ fontSize: '16px', lineHeight: 1.7, color: 'var(--text-secondary)' }}>
+          {renderMarkdownBody(postText)}
+        </div>
+      ) : null}
+
+      {/* Image gallery */}
+      {galleryImages.length > 0 && (
+        <div
+          className={`mt-6 mb-4 gap-2 ${galleryImages.length === 1 ? '' : 'grid grid-cols-2'}`}
+        >
+          {galleryImages.map((img, i) => (
+            <img
+              key={i}
+              src={img}
+              alt={`Image ${i + 2}`}
+              className="w-full h-auto rounded-lg"
+              style={{ border: '1px solid var(--border-subtle)' }}
+              loading="lazy"
+              referrerPolicy="no-referrer"
+              onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
+            />
+          ))}
+        </div>
+      )}
+
+      {/* Comments section */}
+      {commentsRaw && (
+        <div
+          className="mt-8 pt-6 rounded-lg"
+          style={{ borderTop: '1px solid var(--border-subtle)' }}
+        >
+          {/* Section header */}
+          <div
+            className="text-[11px] font-semibold uppercase tracking-wider mb-4"
+            style={{ color: 'var(--text-tertiary)' }}
+          >
+            Top Comments
+          </div>
+
+          {hasStructuredComments ? (
+            <div className="space-y-1">
+              {comments.map((comment, i) => {
+                const isAutoMod = comment.author === 'AutoModerator';
+                const depth = Math.min(comment.depth, 4);
+
+                return (
+                  <div
+                    key={i}
+                    className="pb-3 mb-3"
+                    style={{
+                      marginLeft: `${depth * 16}px`,
+                      borderLeft: depth > 0 ? '1px solid var(--border-subtle)' : 'none',
+                      paddingLeft: depth > 0 ? '12px' : '0',
+                      opacity: isAutoMod ? 0.5 : 1,
+                      borderBottom: '1px solid var(--border-subtle)',
+                    }}
+                  >
+                    {/* Author label */}
+                    <a
+                      href={`https://reddit.com/user/${comment.author}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-xs font-mono font-bold hover:underline mb-1 inline-block"
+                      style={{ color: isAutoMod ? 'var(--text-tertiary)' : 'var(--text-secondary)' }}
+                    >
+                      u/{comment.author}
+                      {isAutoMod && <span className="font-normal ml-1" style={{ color: 'var(--text-tertiary)' }}>· bot</span>}
+                    </a>
+                    {/* Comment text */}
+                    <div style={{ fontSize: '14px', lineHeight: 1.6, color: 'var(--text-secondary)' }}>
+                      {renderMarkdownBody(comment.text)}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          ) : (
+            /* Fallback: render raw comments text as a single styled block */
+            <div style={{ fontSize: '14px', lineHeight: 1.6, color: 'var(--text-secondary)' }}>
+              {renderMarkdownBody(commentsRaw)}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── CaptureBody: platform-aware body dispatcher ──
 
 export function CaptureBody({ capture }: { capture: Capture }) {
@@ -717,11 +897,7 @@ export function CaptureBody({ capture }: { capture: Capture }) {
     case 'github':
       return <GitHubBody capture={capture} />;
     case 'reddit':
-      return (
-        <div style={{ fontSize: '16px', lineHeight: 1.7, color: 'var(--text-secondary)' }}>
-          {renderMarkdownBody(capture.body)}
-        </div>
-      );
+      return <RedditBody capture={capture} />;
     default:
       return (
         <div style={{ fontSize: '16px', lineHeight: 1.7, color: 'var(--text-secondary)' }}>
