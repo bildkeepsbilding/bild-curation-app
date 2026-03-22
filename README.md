@@ -56,8 +56,8 @@ The codebase is organized around a few key patterns:
 ## Development
 
 ```bash
-git clone https://github.com/bildkeepsbilding/bild-curation-app.git
-cd bild-curation-app
+git clone https://github.com/bildkeepsbilding/sift.git
+cd sift
 npm install
 cp .env.example .env.local  # add your Supabase keys
 npm run dev

@@ -128,7 +128,7 @@ Users can configure:
 Settings stored in `chrome.storage.sync` (synced across Chrome instances).
 
 ## Development
-- Load unpacked from `~/bild-curation-app/extension` in `chrome://extensions`
+- Load unpacked from `~/sift/extension` in `chrome://extensions`
 - After code changes: `git pull origin main` then reload extension in Chrome
 - Permission changes require removing and re-adding the extension
 - Debug: right-click extension icon → "Inspect Popup" → Console
