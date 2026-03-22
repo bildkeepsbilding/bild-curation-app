@@ -2,6 +2,12 @@
 
 import React from 'react';
 import { type Capture, type Platform } from '@/lib/db';
+import {
+  extractGitHubSections,
+  stripGitHubMetadataLines,
+  resolveGitHubImages,
+  parseGitHubOwnerRepo,
+} from '@/lib/content-transforms';
 
 // ── Platform colors ──
 
@@ -613,31 +619,11 @@ function renderGitHubReadme(content: string): React.ReactNode[] {
 
 function GitHubBody({ capture }: { capture: Capture }) {
   const body = capture.body || '';
-
-  // Extract owner/repo from URL for resolving relative image paths
-  const urlParts = capture.url.replace(/^https?:\/\/(www\.)?github\.com\//, '').split('/');
-  const owner = urlParts[0] || '';
-  const repo = urlParts[1] || '';
-
-  // Split body into sections by --- separators
-  // Structure: metadata lines, ---, Project Structure: ..., ---, README: ...
-  const sections = body.split(/\n---\n/);
-
-  let fileTree = '';
-  let readmeContent = '';
-
-  for (const section of sections) {
-    const trimmed = section.trim();
-    if (trimmed.startsWith('Project Structure:')) {
-      fileTree = trimmed.replace(/^Project Structure:\s*/, '').trim();
-    } else if (trimmed.startsWith('README:')) {
-      readmeContent = trimmed.replace(/^README:\s*/, '').trim();
-    }
-    // Skip the first section (description/stats/languages/topics) — already in metadata header
-  }
+  const { owner, repo } = parseGitHubOwnerRepo(capture.url);
+  const { fileTree, readmeContent: rawReadme } = extractGitHubSections(body);
 
   // If no structured sections found, fall back to stripping metadata and rendering as markdown
-  if (!fileTree && !readmeContent) {
+  if (!fileTree && !rawReadme) {
     const cleaned = stripGitHubMetadataLines(body, capture.metadata);
     return (
       <div style={{ fontSize: '15px', lineHeight: 1.65, color: 'var(--text-secondary)' }}>
@@ -646,10 +632,10 @@ function GitHubBody({ capture }: { capture: Capture }) {
     );
   }
 
-  // Process README: convert relative <img> tags to absolute GitHub raw URLs, or strip them
-  if (readmeContent && owner && repo) {
-    readmeContent = resolveGitHubImages(readmeContent, owner, repo);
-  }
+  // Process README: convert relative <img> tags to absolute GitHub raw URLs
+  const readmeContent = (rawReadme && owner && repo)
+    ? resolveGitHubImages(rawReadme, owner, repo)
+    : rawReadme;
 
   return (
     <div>
@@ -661,43 +647,6 @@ function GitHubBody({ capture }: { capture: Capture }) {
       )}
     </div>
   );
-}
-
-/** Strip metadata lines that are already shown in GitHubMetadataHeader */
-function stripGitHubMetadataLines(body: string, metadata: Record<string, unknown> | null): string {
-  const lines = body.split('\n');
-  const filtered = lines.filter(line => {
-    const trimmed = line.trim();
-    // Skip description line (first non-empty line that matches metadata description)
-    if (metadata?.description && trimmed === String(metadata.description)) return false;
-    // Skip stats line: "Stars: X · Forks: Y · Issues: Z" or "⭐ X 🍴 Y" patterns
-    if (/^(Stars?|⭐)\s*[:：]?\s*[\d,]+\s*[·•]\s*(Forks?|🍴)/i.test(trimmed)) return false;
-    if (/^\d[\d,]*\s*stars?\s*[·•]/i.test(trimmed)) return false;
-    // Skip language lines
-    if (/^Languages?[:：]\s/i.test(trimmed)) return false;
-    // Skip topics line
-    if (/^Topics?[:：]\s/i.test(trimmed)) return false;
-    return true;
-  });
-  return filtered.join('\n').replace(/^\n+/, '');
-}
-
-/** Convert relative <img> tags to absolute GitHub raw URLs, or strip if no owner/repo */
-function resolveGitHubImages(content: string, owner: string, repo: string): string {
-  // Match HTML img tags
-  return content.replace(/<img\s+[^>]*src=["']([^"']+)["'][^>]*\/?>/gi, (match, src: string) => {
-    // Already absolute URL — keep as markdown image
-    if (/^https?:\/\//.test(src)) {
-      return `![](${src})`;
-    }
-    // Relative path — resolve to raw.githubusercontent.com
-    if (owner && repo) {
-      const cleanPath = src.replace(/^\.?\//, '');
-      return `![](https://raw.githubusercontent.com/${owner}/${repo}/HEAD/${cleanPath})`;
-    }
-    // Can't resolve — strip
-    return '';
-  });
 }
 
 // ── ArticleBody (also used for X Articles) ──

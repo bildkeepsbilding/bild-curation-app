@@ -1,5 +1,6 @@
 import { createClient } from '@/lib/supabase/client';
 import { createClient as createAnonClient } from '@supabase/supabase-js';
+import { convertImageMarkers } from '@/lib/content-transforms';
 
 /** Anonymous Supabase client for public data fetching (no cookie/session management). */
 function createPublicClient() {
@@ -645,7 +646,7 @@ export function buildExportData(project: Project, captures: Capture[], filterPla
     engagement: formatEngagement(c),
     date: new Date(c.createdAt).toISOString().split('T')[0],
     context_note: c.note || '',
-    body: c.body.replace(/\[image:([^\]]+)\]/g, '![image]($1)').trim(),
+    body: convertImageMarkers(c.body).trim(),
   }));
 
   const platforms = [...new Set(filtered.map(c => PLATFORM_DISPLAY[c.platform] || c.platform))];

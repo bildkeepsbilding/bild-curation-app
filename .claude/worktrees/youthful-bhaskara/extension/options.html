@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Bild Extension Settings</title>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&display=swap');
+
+    :root {
+      --bg: #0a0a0b;
+      --bg-elevated: #141416;
+      --border: #2a2a2d;
+      --text-primary: #f0f0f0;
+      --text-secondary: #8a8a8e;
+      --text-tertiary: #5a5a5e;
+      --accent: #e8ff47;
+      --accent-dim: #e8ff4720;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: 'DM Sans', -apple-system, sans-serif;
+      background: var(--bg);
+      color: var(--text-primary);
+      -webkit-font-smoothing: antialiased;
+      min-height: 100vh;
+      display: flex;
+      justify-content: center;
+      padding: 48px 24px;
+    }
+
+    .container {
+      width: 100%;
+      max-width: 440px;
+    }
+
+    h1 {
+      font-size: 24px;
+      font-weight: 700;
+      margin-bottom: 4px;
+    }
+
+    .subtitle {
+      font-size: 13px;
+      color: var(--text-tertiary);
+      margin-bottom: 32px;
+    }
+
+    label {
+      display: block;
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--text-tertiary);
+      margin-bottom: 8px;
+    }
+
+    input[type="url"] {
+      width: 100%;
+      padding: 12px 14px;
+      border-radius: 10px;
+      border: 1px solid var(--border);
+      background: var(--bg-elevated);
+      color: var(--text-primary);
+      font-family: 'DM Sans', sans-serif;
+      font-size: 14px;
+      outline: none;
+      transition: border-color 0.15s;
+    }
+
+    input[type="url"]:focus {
+      border-color: var(--accent);
+    }
+
+    .hint {
+      font-size: 11px;
+      color: var(--text-tertiary);
+      margin-top: 6px;
+    }
+
+    .actions {
+      margin-top: 24px;
+      display: flex;
+      gap: 12px;
+    }
+
+    .btn-save {
+      padding: 10px 24px;
+      border-radius: 10px;
+      border: none;
+      background: var(--accent);
+      color: var(--bg);
+      font-family: 'DM Sans', sans-serif;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: opacity 0.15s;
+    }
+
+    .btn-save:hover { opacity: 0.9; }
+
+    .btn-reset {
+      padding: 10px 24px;
+      border-radius: 10px;
+      border: 1px solid var(--border);
+      background: transparent;
+      color: var(--text-secondary);
+      font-family: 'DM Sans', sans-serif;
+      font-size: 14px;
+      cursor: pointer;
+      transition: background 0.15s;
+    }
+
+    .btn-reset:hover { background: var(--bg-elevated); }
+
+    .saved-message {
+      margin-top: 16px;
+      font-size: 13px;
+      color: var(--accent);
+      opacity: 0;
+      transition: opacity 0.2s;
+    }
+
+    .saved-message.visible {
+      opacity: 1;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Bild Settings</h1>
+    <p class="subtitle">Configure your Bild extension</p>
+
+    <label for="app-url">App URL</label>
+    <input type="url" id="app-url" placeholder="https://bild-curation-app.vercel.app">
+    <p class="hint">The URL where your Bild app is deployed. Change this if you're running locally (e.g., http://localhost:3000).</p>
+
+    <div class="actions">
+      <button id="save-btn" class="btn-save">Save</button>
+      <button id="reset-btn" class="btn-reset">Reset to default</button>
+    </div>
+
+    <div id="saved-message" class="saved-message">✓ Settings saved</div>
+  </div>
+
+  <script src="options.js"></script>
+</body>
+</html>
