@@ -578,6 +578,39 @@ function FileTreeCollapsible({ content }: { content: string }) {
 
 // ── GitHubBody ──
 
+/** Render GitHub README content with markdown image support.
+ *  Splits on ![alt](url) patterns and renders them as <img> elements,
+ *  delegating the rest to renderMarkdownBody. */
+function renderGitHubReadme(content: string): React.ReactNode[] {
+  // Split content into text and image segments
+  // Matches both standalone image lines and inline images
+  const parts = content.split(/(!\[[^\]]*\]\([^)]+\))/g);
+  const elements: React.ReactNode[] = [];
+
+  parts.forEach((part, i) => {
+    const imgMatch = part.match(/^!\[([^\]]*)\]\(([^)]+)\)$/);
+    if (imgMatch) {
+      elements.push(
+        <div key={`img-${i}`} className="my-4">
+          <img
+            src={imgMatch[2]}
+            alt={imgMatch[1]}
+            className="rounded-lg"
+            style={{ maxWidth: '100%', border: '1px solid var(--border-subtle)' }}
+            loading="lazy"
+            referrerPolicy="no-referrer"
+            onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
+          />
+        </div>
+      );
+    } else if (part.trim()) {
+      elements.push(...renderMarkdownBody(part));
+    }
+  });
+
+  return elements;
+}
+
 function GitHubBody({ capture }: { capture: Capture }) {
   const body = capture.body || '';
 
@@ -608,7 +641,7 @@ function GitHubBody({ capture }: { capture: Capture }) {
     const cleaned = stripGitHubMetadataLines(body, capture.metadata);
     return (
       <div style={{ fontSize: '15px', lineHeight: 1.65, color: 'var(--text-secondary)' }}>
-        {renderMarkdownBody(cleaned)}
+        {renderGitHubReadme(cleaned)}
       </div>
     );
   }
@@ -623,7 +656,7 @@ function GitHubBody({ capture }: { capture: Capture }) {
       {fileTree && <FileTreeCollapsible content={fileTree} />}
       {readmeContent && (
         <div style={{ fontSize: '15px', lineHeight: 1.65, color: 'var(--text-secondary)' }}>
-          {renderMarkdownBody(readmeContent)}
+          {renderGitHubReadme(readmeContent)}
         </div>
       )}
     </div>
